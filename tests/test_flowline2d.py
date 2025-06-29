@@ -23,6 +23,8 @@ import tempfile
 import os
 from pathlib import Path
 import warnings
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 # Import the module under test
 import sys
@@ -32,6 +34,10 @@ from flowline.flowline2d import (
     TemperaturePrecipitationForcing, DirectMassBalanceForcing,
     FlowlineModelError, GeometryError, NumericalInstabilityError
 )
+
+# Create output directory for QC figures
+QC_FIGURE_DIR = Path("test_qc_figures")
+QC_FIGURE_DIR.mkdir(exist_ok=True)
 
 
 class TestGeometry:
@@ -225,6 +231,62 @@ class TestSteadyStateInitialization:
             mu=0.65
         )
     
+    def _create_qc_figure(self, result, title, filename):
+        """Create QC figure for steady-state results"""
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle(title, fontsize=14)
+        
+        # Plot 1: Final ice thickness profile
+        ax = axes[0, 0]
+        edge_idx = result.edge_idx[-1]
+        ax.fill_between(result.x[:edge_idx]/1000, result.zb[:edge_idx], 
+                       result.zb[:edge_idx] + result.h[-1, :edge_idx], 
+                       alpha=0.7, color='lightblue', label='Ice')
+        ax.plot(result.x/1000, result.zb, 'k-', linewidth=2, label='Bed')
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Elevation (m)')
+        ax.set_title('Final Ice Thickness Profile')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: Length evolution
+        ax = axes[0, 1]
+        ax.plot(result.t, result.edge/1000, 'b-', linewidth=2)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length Evolution')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Mass balance profile
+        ax = axes[1, 0]
+        if hasattr(result, 'b') and result.b is not None:
+            ax.plot(result.x[:edge_idx]/1000, result.b[-1, :edge_idx], 'r-', linewidth=2)
+            ax.axhline(y=0, color='k', linestyle='--', alpha=0.5)
+            ax.set_xlabel('Distance (km)')
+            ax.set_ylabel('Mass Balance (m/yr)')
+            ax.set_title('Final Mass Balance Profile')
+            ax.grid(True, alpha=0.3)
+        
+        # Plot 4: Area and ELA evolution
+        ax = axes[1, 1]
+        ax2 = ax.twinx()
+        line1 = ax.plot(result.t, result.area/1e6, 'g-', linewidth=2, label='Area')
+        line2 = ax2.plot(result.t, result.ela, 'orange', linewidth=2, label='ELA')
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Area (km²)', color='g')
+        ax2.set_ylabel('ELA (m)', color='orange')
+        ax.set_title('Area and ELA Evolution')
+        ax.grid(True, alpha=0.3)
+        
+        # Combine legends
+        lines = line1 + line2
+        labels = [l.get_label() for l in lines]
+        ax.legend(lines, labels, loc='upper right')
+        
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
+        plt.close()
+    
     def create_steady_state_profile(self, geometry_func, config, forcing_params, 
                                   initial_thickness=100):
         """Create steady-state ice thickness profile for testing"""
@@ -274,6 +336,11 @@ class TestSteadyStateInitialization:
             forcing_params
         )
         
+        # Create QC figure
+        self._create_qc_figure(result, 
+                              'Steady State Convergence Test', 
+                              'steady_state_convergence.png')
+        
         # Check that length has stabilized (last 50 years should be relatively stable)
         final_lengths = result.edge[-50:]
         length_std = np.std(final_lengths)
@@ -298,6 +365,63 @@ class TestMassBalanceResponses:
             gamma=6.5e-3,
             mu=0.65
         )
+    
+    def _create_response_qc_figure(self, results_dict, title, filename):
+        """Create QC figure comparing multiple model runs"""
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle(title, fontsize=14)
+        
+        colors = ['blue', 'red', 'green', 'orange', 'purple']
+        
+        # Plot 1: Length evolution comparison
+        ax = axes[0, 0]
+        for i, (label, result) in enumerate(results_dict.items()):
+            ax.plot(result.t, result.edge/1000, color=colors[i % len(colors)], 
+                   linewidth=2, label=label)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length Evolution Comparison')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: Final thickness profiles
+        ax = axes[0, 1]
+        for i, (label, result) in enumerate(results_dict.items()):
+            edge_idx = result.edge_idx[-1]
+            ax.plot(result.x[:edge_idx]/1000, result.h[-1, :edge_idx], 
+                   color=colors[i % len(colors)], linewidth=2, label=label)
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Ice Thickness (m)')
+        ax.set_title('Final Thickness Profiles')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Area evolution
+        ax = axes[1, 0]
+        for i, (label, result) in enumerate(results_dict.items()):
+            ax.plot(result.t, result.area/1e6, color=colors[i % len(colors)], 
+                   linewidth=2, label=label)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Area (km²)')
+        ax.set_title('Area Evolution')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 4: Mass balance forcing (if available)
+        ax = axes[1, 1]
+        for i, (label, result) in enumerate(results_dict.items()):
+            if hasattr(result, 'gwb'):
+                ax.plot(result.t, result.gwb, color=colors[i % len(colors)], 
+                       linewidth=2, label=label)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier-wide Balance (m³/yr)')
+        ax.set_title('Glacier-wide Mass Balance')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
+        plt.close()
     
     def get_steady_state_setup(self, bed_type='uniform'):
         """Get steady-state initial conditions"""
@@ -348,6 +472,15 @@ class TestMassBalanceResponses:
         model_neg = flowline2d(config=test_config, geometry=geometry_neg, forcing=forcing_neg)
         result_neg = model_neg.run()
         
+        # Create QC figure
+        results_dict = {
+            'Positive Step (+0.5 m/yr)': result_pos,
+            'Negative Step (-0.5 m/yr)': result_neg
+        }
+        self._create_response_qc_figure(results_dict, 
+                                       'Step Change Symmetry Test', 
+                                       'step_change_symmetry.png')
+        
         # Calculate length changes
         initial_length = result_pos.edge[49]  # Length just before step change
         final_length_pos = result_pos.edge[-1]
@@ -375,6 +508,49 @@ class TestMassBalanceResponses:
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=test_config, geometry=geometry, forcing=forcing)
         result = model.run()
+        
+        # Create QC figure with noise analysis
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle('White Noise Response Test', fontsize=14)
+        
+        # Plot 1: Length evolution
+        ax = axes[0, 0]
+        ax.plot(result.t, result.edge/1000, 'b-', linewidth=1, alpha=0.7)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length Evolution (White Noise Forcing)')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: Mass balance forcing
+        ax = axes[0, 1]
+        ax.plot(result.t, bp_noise[:len(result.t)], 'r-', linewidth=1, alpha=0.7)
+        ax.axhline(y=0, color='k', linestyle='--', alpha=0.5)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Mass Balance Perturbation (m/yr)')
+        ax.set_title('White Noise Forcing')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Length distribution histogram
+        ax = axes[1, 0]
+        lengths = result.edge[50:]  # Skip initial adjustment
+        ax.hist(lengths/1000, bins=20, alpha=0.7, density=True, color='lightblue')
+        ax.set_xlabel('Glacier Length (km)')
+        ax.set_ylabel('Probability Density')
+        ax.set_title('Length Distribution')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 4: Length vs forcing scatter
+        ax = axes[1, 1]
+        if len(result.edge) == len(bp_noise):
+            ax.scatter(bp_noise, result.edge/1000, alpha=0.5, s=10)
+        ax.set_xlabel('Mass Balance Perturbation (m/yr)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length vs Forcing')
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / 'white_noise_response.png', dpi=150, bbox_inches='tight')
+        plt.close()
         
         # Analyze length variability (skip initial adjustment period)
         lengths = result.edge[50:]  # Skip first 50 years
@@ -412,6 +588,57 @@ class TestMassBalanceResponses:
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=test_config, geometry=geometry, forcing=forcing)
         result = model.run()
+        
+        # Create QC figure for trend response
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle('Linear Trend Response Test', fontsize=14)
+        
+        # Plot 1: Length evolution with trend phases
+        ax = axes[0, 0]
+        ax.plot(result.t, result.edge/1000, 'b-', linewidth=2)
+        ax.axvline(x=100, color='r', linestyle='--', alpha=0.7, label='End of trend')
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length Evolution')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: Mass balance forcing
+        ax = axes[0, 1]
+        ax.plot(result.t, bp_trend[:len(result.t)], 'r-', linewidth=2)
+        ax.axvline(x=100, color='r', linestyle='--', alpha=0.7)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Mass Balance Perturbation (m/yr)')
+        ax.set_title('Linear Trend Forcing')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Rate of length change
+        ax = axes[1, 0]
+        dLdt = np.gradient(result.edge, result.t)
+        ax.plot(result.t, dLdt, 'g-', linewidth=2)
+        ax.axvline(x=100, color='r', linestyle='--', alpha=0.7)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('dL/dt (m/yr)')
+        ax.set_title('Rate of Length Change')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 4: Transient response analysis
+        ax = axes[1, 1]
+        initial_length = result.edge[0]
+        final_length = result.edge[-1]
+        normalized_response = (result.edge - initial_length) / (final_length - initial_length)
+        ax.plot(result.t, normalized_response, 'purple', linewidth=2)
+        ax.axhline(y=1, color='k', linestyle='--', alpha=0.5, label='Final response')
+        ax.axvline(x=100, color='r', linestyle='--', alpha=0.7, label='End of trend')
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Normalized Length Change')
+        ax.set_title('Transient Response')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / 'linear_trend_response.png', dpi=150, bbox_inches='tight')
+        plt.close()
         
         # Calculate transient response ratio
         initial_length = result.edge[0]
@@ -462,6 +689,11 @@ class TestNumericalSensitivity:
             model = flowline2d(config=config, geometry=geometry, forcing=forcing)
             results[name] = model.run()
         
+        # Create QC figure for grid sensitivity
+        self._create_grid_sensitivity_qc_figure(results, 
+                                               'Grid Resolution Sensitivity Test', 
+                                               'grid_resolution_sensitivity.png')
+        
         # Compare final lengths (should be within 0.1% of each other)
         base_length = results['base'].edge[-1]
         fine_length = results['fine'].edge[-1]
@@ -472,6 +704,84 @@ class TestNumericalSensitivity:
         
         assert fine_error < 0.001, f"Fine grid error: {fine_error:.4f}"
         assert coarse_error < 0.001, f"Coarse grid error: {coarse_error:.4f}"
+    
+    def _create_grid_sensitivity_qc_figure(self, results_dict, title, filename):
+        """Create QC figure for grid sensitivity analysis"""
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle(title, fontsize=14)
+        
+        colors = {'base': 'blue', 'fine': 'red', 'coarse': 'green'}
+        
+        # Plot 1: Length evolution comparison
+        ax = axes[0, 0]
+        for label, result in results_dict.items():
+            ax.plot(result.t, result.edge/1000, color=colors[label], 
+                   linewidth=2, label=f'{label} (Δx={result.config.delx}m)')
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length Evolution Comparison')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: Final thickness profiles (interpolated to common grid)
+        ax = axes[0, 1]
+        # Use base grid as reference
+        x_ref = results_dict['base'].x
+        for label, result in results_dict.items():
+            edge_idx = result.edge_idx[-1]
+            if edge_idx > 0:
+                # Interpolate to reference grid for comparison
+                from scipy.interpolate import interp1d
+                x_result = result.x[:edge_idx]
+                h_result = result.h[-1, :edge_idx]
+                if len(x_result) > 1:
+                    h_interp = interp1d(x_result, h_result, bounds_error=False, fill_value=0)
+                    h_ref = h_interp(x_ref)
+                    ax.plot(x_ref/1000, h_ref, color=colors[label], 
+                           linewidth=2, label=f'{label} (Δx={result.config.delx}m)')
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Ice Thickness (m)')
+        ax.set_title('Final Thickness Profiles')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Convergence analysis
+        ax = axes[1, 0]
+        base_length = results_dict['base'].edge
+        for label, result in results_dict.items():
+            if label != 'base':
+                # Interpolate to base time grid for comparison
+                from scipy.interpolate import interp1d
+                if len(result.t) > 1 and len(base_length) > 1:
+                    length_interp = interp1d(result.t, result.edge, bounds_error=False, fill_value='extrapolate')
+                    length_ref = length_interp(results_dict['base'].t)
+                    error = abs(length_ref - base_length) / base_length * 100
+                    ax.plot(results_dict['base'].t, error, color=colors[label], 
+                           linewidth=2, label=f'{label} vs base')
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Relative Error (%)')
+        ax.set_title('Length Error vs Base Resolution')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 4: Final length comparison
+        ax = axes[1, 1]
+        labels = list(results_dict.keys())
+        final_lengths = [results_dict[label].edge[-1]/1000 for label in labels]
+        grid_sizes = [results_dict[label].config.delx for label in labels]
+        
+        ax.scatter(grid_sizes, final_lengths, s=100, c=[colors[label] for label in labels])
+        for i, label in enumerate(labels):
+            ax.annotate(label, (grid_sizes[i], final_lengths[i]), 
+                       xytext=(5, 5), textcoords='offset points')
+        ax.set_xlabel('Grid Size (m)')
+        ax.set_ylabel('Final Length (km)')
+        ax.set_title('Final Length vs Grid Resolution')
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
+        plt.close()
 
 
 class TestBoundaryConditions:
@@ -559,6 +869,11 @@ class TestMassConservation:
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
         
+        # Create QC figure for mass conservation
+        self._create_mass_conservation_qc_figure(result, 
+                                                'Mass Conservation Test', 
+                                                'mass_conservation.png')
+        
         # Calculate mass balance and volume change
         dt = np.diff(result.t)
         
@@ -578,6 +893,93 @@ class TestMassConservation:
                     relative_error = abs(dvol_dt - mb_input) / abs(mb_input)
                     assert relative_error < 0.01, \
                         f"Mass conservation error at t={result.t[i]:.1f}: {relative_error:.4f}"
+    
+    def _create_mass_conservation_qc_figure(self, result, title, filename):
+        """Create QC figure for mass conservation analysis"""
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle(title, fontsize=14)
+        
+        # Calculate volume and mass balance terms
+        dt = np.diff(result.t)
+        volumes = []
+        dvol_dt = []
+        
+        for i in range(len(result.t)):
+            edge_idx = result.edge_idx[i]
+            if edge_idx > 0:
+                vol = np.sum(result.h[i, :edge_idx] * result.w[:edge_idx] * result.config.delx)
+                volumes.append(vol)
+            else:
+                volumes.append(0)
+        
+        for i in range(1, len(volumes)):
+            dvol_dt.append((volumes[i] - volumes[i-1]) / dt[i-1])
+        
+        # Plot 1: Volume evolution
+        ax = axes[0, 0]
+        ax.plot(result.t, np.array(volumes)/1e9, 'b-', linewidth=2)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Ice Volume (km³)')
+        ax.set_title('Ice Volume Evolution')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: Mass balance vs volume change rate
+        ax = axes[0, 1]
+        if len(dvol_dt) > 0:
+            ax.scatter(result.gwb[1:], dvol_dt, alpha=0.7, s=20)
+            # Perfect conservation line
+            min_val = min(min(result.gwb[1:]), min(dvol_dt))
+            max_val = max(max(result.gwb[1:]), max(dvol_dt))
+            ax.plot([min_val, max_val], [min_val, max_val], 'r--', 
+                   linewidth=2, label='Perfect Conservation')
+            ax.set_xlabel('Mass Balance Input (m³/yr)')
+            ax.set_ylabel('Volume Change Rate (m³/yr)')
+            ax.set_title('Mass Conservation Check')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Conservation error over time
+        ax = axes[1, 0]
+        if len(dvol_dt) > 0:
+            conservation_error = []
+            for i in range(len(dvol_dt)):
+                mb_input = result.gwb[i+1]
+                if abs(mb_input) > 1e-6:
+                    error = abs(dvol_dt[i] - mb_input) / abs(mb_input) * 100
+                    conservation_error.append(error)
+                else:
+                    conservation_error.append(0)
+            
+            ax.plot(result.t[1:len(conservation_error)+1], conservation_error, 'r-', linewidth=2)
+            ax.set_xlabel('Time (years)')
+            ax.set_ylabel('Relative Error (%)')
+            ax.set_title('Mass Conservation Error')
+            ax.grid(True, alpha=0.3)
+        
+        # Plot 4: Glacier geometry evolution
+        ax = axes[1, 1]
+        # Show thickness profiles at different times
+        time_indices = [0, len(result.t)//4, len(result.t)//2, 3*len(result.t)//4, -1]
+        colors = ['blue', 'green', 'orange', 'red', 'purple']
+        
+        for i, (t_idx, color) in enumerate(zip(time_indices, colors)):
+            edge_idx = result.edge_idx[t_idx]
+            if edge_idx > 0:
+                ax.fill_between(result.x[:edge_idx]/1000, result.zb[:edge_idx], 
+                               result.zb[:edge_idx] + result.h[t_idx, :edge_idx], 
+                               alpha=0.3, color=color, 
+                               label=f't={result.t[t_idx]:.1f} yr')
+        
+        ax.plot(result.x/1000, result.zb, 'k-', linewidth=2, label='Bed')
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Elevation (m)')
+        ax.set_title('Glacier Evolution')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
+        plt.close()
 
 
 class TestOutputFormats:
@@ -709,10 +1111,72 @@ class TestFeatures:
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
         
+        # Create QC figure for PDD forcing
+        self._create_pdd_qc_figure(result, 
+                                  'PDD Temperature Forcing Test', 
+                                  'pdd_temperature_forcing.png')
+        
         # Should have PDD output
         assert hasattr(result, 'pdd'), "Result should contain PDD data"
         assert result.pdd is not None, "PDD data should not be None"
         assert np.all(result.pdd >= 0), "PDD values should be non-negative"
+    
+    def _create_pdd_qc_figure(self, result, title, filename):
+        """Create QC figure for PDD temperature forcing"""
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle(title, fontsize=14)
+        
+        # Plot 1: Final ice thickness and bed profile
+        ax = axes[0, 0]
+        edge_idx = result.edge_idx[-1]
+        if edge_idx > 0:
+            ax.fill_between(result.x[:edge_idx]/1000, result.zb[:edge_idx], 
+                           result.zb[:edge_idx] + result.h[-1, :edge_idx], 
+                           alpha=0.7, color='lightblue', label='Ice')
+        ax.plot(result.x/1000, result.zb, 'k-', linewidth=2, label='Bed')
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Elevation (m)')
+        ax.set_title('Final Ice Thickness Profile')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: PDD distribution
+        ax = axes[0, 1]
+        if hasattr(result, 'pdd') and result.pdd is not None:
+            # Show PDD along flowline for final time
+            if edge_idx > 0:
+                ax.plot(result.x[:edge_idx]/1000, result.pdd[-1, :edge_idx], 'r-', linewidth=2)
+                ax.set_xlabel('Distance (km)')
+                ax.set_ylabel('PDD (degree-days)')
+                ax.set_title('Final PDD Distribution')
+                ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Temperature and melt profiles
+        ax = axes[1, 0]
+        if hasattr(result, 'melt') and result.melt is not None:
+            if edge_idx > 0:
+                ax.plot(result.x[:edge_idx]/1000, result.melt[-1, :edge_idx], 'orange', 
+                       linewidth=2, label='Melt')
+                if hasattr(result, 'P') and result.P is not None:
+                    ax.plot(result.x[:edge_idx]/1000, result.P[-1, :edge_idx], 'blue', 
+                           linewidth=2, label='Precipitation')
+                ax.set_xlabel('Distance (km)')
+                ax.set_ylabel('Rate (m/yr)')
+                ax.set_title('Final Melt and Precipitation')
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+        
+        # Plot 4: Length evolution
+        ax = axes[1, 1]
+        ax.plot(result.t, result.edge/1000, 'b-', linewidth=2)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length Evolution')
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
+        plt.close()
 
 
 class TestErrorHandling:
@@ -782,6 +1246,60 @@ class TestSteadyStateValidation:
         pytest.skip("Mass balance gradient steady-state validation not yet implemented")
 
 
+def create_qc_figure_index():
+    """Create an HTML index of all QC figures"""
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Flowline2D Test QC Figures</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            .figure { margin: 20px 0; padding: 20px; border: 1px solid #ddd; }
+            .figure img { max-width: 100%; height: auto; }
+            .figure h3 { margin-top: 0; color: #333; }
+        </style>
+    </head>
+    <body>
+        <h1>Flowline2D Integration Test QC Figures</h1>
+        <p>Generated on: {date}</p>
+    """.format(date=pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'))
+    
+    # List of expected QC figures
+    qc_figures = [
+        ('steady_state_convergence.png', 'Steady State Convergence Test'),
+        ('step_change_symmetry.png', 'Step Change Symmetry Test'),
+        ('white_noise_response.png', 'White Noise Response Test'),
+        ('linear_trend_response.png', 'Linear Trend Response Test'),
+        ('grid_resolution_sensitivity.png', 'Grid Resolution Sensitivity Test'),
+        ('mass_conservation.png', 'Mass Conservation Test'),
+        ('pdd_temperature_forcing.png', 'PDD Temperature Forcing Test'),
+    ]
+    
+    for filename, description in qc_figures:
+        if (QC_FIGURE_DIR / filename).exists():
+            html_content += f"""
+            <div class="figure">
+                <h3>{description}</h3>
+                <img src="{filename}" alt="{description}">
+            </div>
+            """
+    
+    html_content += """
+    </body>
+    </html>
+    """
+    
+    # Write HTML index
+    with open(QC_FIGURE_DIR / 'index.html', 'w') as f:
+        f.write(html_content)
+    
+    print(f"QC figure index created at: {QC_FIGURE_DIR / 'index.html'}")
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v"])
+    
+    # Create QC figure index after tests complete
+    create_qc_figure_index()
