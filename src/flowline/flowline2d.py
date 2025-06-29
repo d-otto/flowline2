@@ -160,7 +160,7 @@ class FlowlineGeometry:
                 h0 = np.mean(profile_source.h[-num_steps:, :], axis=0)
             else:
                 h0 = np.array(profile_source.h[-1, :])
-        elif self.x_init is not None and self.h_init is not None:
+        elif self.x_init is not None and self.h_init is not None:  # In case x_init and h_init are explicitly provided
             logging.info("Using provided initial values for geometry.")
             x0 = self.x_init
             h0 = self.h_init
