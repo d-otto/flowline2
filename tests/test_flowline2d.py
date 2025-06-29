@@ -25,6 +25,8 @@ from pathlib import Path
 import warnings
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+import dill
+import copy
 
 # Import the module under test
 import sys
@@ -425,9 +427,18 @@ class TestMassBalanceResponses:
         plt.close()
     
     def get_steady_state_setup(self, bed_type='uniform'):
-        """Get steady-state initial conditions"""
-        # This would use pre-computed steady states in practice
-        # For now, create reasonable initial conditions
+        """Get steady-state initial conditions by running and caching a spin-up model."""
+        cache_dir = QC_FIGURE_DIR / "test_cache"
+        cache_dir.mkdir(exist_ok=True)
+        cache_path = cache_dir / f"steady_state_{bed_type}.pkl"
+
+        if cache_path.exists():
+            with open(cache_path, 'rb') as f:
+                return dill.load(f)
+
+        # Config for a long spin-up run
+        ss_config = FlowlineConfig(ts=0, tf=1500, deltout=10, delx=50)
+        
         basic_params = {
             'length': 10000,
             'x_gr': np.linspace(0, 10000, 21),
@@ -442,14 +453,26 @@ class TestMassBalanceResponses:
         elif bed_type == 'convex':
             x_gr, zb_gr, w_geom = TestGeometry().create_convex_profile(basic_params)
         
-        # Create reasonable initial thickness (triangular profile)
+        # Create reasonable initial thickness to start spinup
         h_init = np.maximum(0, 200 * (1 - x_gr / 8000))
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+
+        # Simple forcing to get to a steady state
+        forcing = TemperaturePrecipitationForcing(
+            T0=10, P0=4, gamma=6.5e-3, mu=0.65, ts=ss_config.ts, tf=ss_config.tf
+        )
+
+        model_ss = flowline2d(config=ss_config, geometry=geometry, forcing=forcing)
+        result_ss = model_ss.run()
         
-        return x_gr, zb_gr, w_geom, h_init
+        # Cache the result
+        result_ss.to_pickle(cache_path)
+
+        return result_ss
     
     def test_step_change_symmetry(self, test_config):
         """Test that +/- mass balance changes produce symmetric length responses"""
-        x_gr, zb_gr, w_geom, h_init = self.get_steady_state_setup('uniform')
+        ss_result = self.get_steady_state_setup('uniform')
         
         # Test positive step change
         bp_pos = np.zeros(int(test_config.tf - test_config.ts))
@@ -458,7 +481,9 @@ class TestMassBalanceResponses:
         forcing_pos = DirectMassBalanceForcing(
             b0=0, bp=bp_pos
         )
-        geometry_pos = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry_pos = FlowlineGeometry(
+            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+        )
         model_pos = flowline2d(config=test_config, geometry=geometry_pos, forcing=forcing_pos)
         result_pos = model_pos.run()
         
@@ -469,7 +494,9 @@ class TestMassBalanceResponses:
         forcing_neg = DirectMassBalanceForcing(
             b0=0, bp=bp_neg
         )
-        geometry_neg = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry_neg = FlowlineGeometry(
+            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+        )
         model_neg = flowline2d(config=test_config, geometry=geometry_neg, forcing=forcing_neg)
         result_neg = model_neg.run()
         
@@ -496,7 +523,7 @@ class TestMassBalanceResponses:
     
     def test_white_noise_response(self, test_config):
         """Test glacier response to white noise mass balance forcing"""
-        x_gr, zb_gr, w_geom, h_init = self.get_steady_state_setup('uniform')
+        ss_result = self.get_steady_state_setup('uniform')
         
         # Create white noise mass balance
         np.random.seed(42)  # For reproducible tests
@@ -504,9 +531,11 @@ class TestMassBalanceResponses:
         bp_noise = np.random.normal(0, 0.65, nyears)  # 0.65 m/yr std dev
         
         forcing = DirectMassBalanceForcing(
-            b0=0, bp=bp_noise, ts=test_config.ts, tf=test_config.tf
+            b0=0, bp=bp_noise
         )
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(
+            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+        )
         model = flowline2d(config=test_config, geometry=geometry, forcing=forcing)
         result = model.run()
         
@@ -570,7 +599,7 @@ class TestMassBalanceResponses:
     
     def test_linear_trend_response(self, test_config):
         """Test glacier response to linear mass balance trend"""
-        x_gr, zb_gr, w_geom, h_init = self.get_steady_state_setup('uniform')
+        ss_result = self.get_steady_state_setup('uniform')
         
         # Create linear trend: 0 to -1 m/yr over 100 years, then steady
         nyears = int(test_config.tf - test_config.ts)
@@ -584,9 +613,11 @@ class TestMassBalanceResponses:
             bp_trend[100:] = -1
         
         forcing = DirectMassBalanceForcing(
-            b0=0, bp=bp_trend, ts=test_config.ts, tf=test_config.tf
+            b0=0, bp=bp_trend
         )
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(
+            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+        )
         model = flowline2d(config=test_config, geometry=geometry, forcing=forcing)
         result = model.run()
         

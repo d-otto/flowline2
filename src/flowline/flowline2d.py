@@ -98,13 +98,14 @@ class FlowlineConfig:
 class FlowlineGeometry:
     """Handles glacier geometry setup and interpolation"""
     
-    def __init__(self, x_gr, zb_gr, w_geom, x_init=None, h_init=None, profile=None):
+    def __init__(self, x_gr, zb_gr, w_geom, x_init=None, h_init=None, profile=None, profile_avg_nyears=None):
         self.x_gr = np.array(x_gr)
         self.zb_gr = np.array(zb_gr)
         self.w_geom = np.array(w_geom)
         self.x_init = x_init
         self.h_init = h_init
         self.profile = profile
+        self.profile_avg_nyears = profile_avg_nyears
         
     def setup_grid(self, delx):
         """Create model grid and interpolate geometry"""
@@ -130,39 +131,54 @@ class FlowlineGeometry:
             logging.warning('The slope of the bed at the top of the glacier is positive. This may cause instabilities.')
     
     def load_initial_profile(self):
-        """Load initial thickness profile"""
+        """Load initial thickness profile, with optional averaging."""
+        profile_source = None
+        h0, x0 = None, None
+
+        # 1. Try to load profile from a flowline2d object or a file
+        if self.profile:
+            if hasattr(self.profile, 'h') and hasattr(self.profile, 'x'):
+                profile_source = self.profile
+            else:
+                try:
+                    with open(self.profile, 'rb') as f:
+                        profile_source = dill.load(f)
+                    logging.info(f"Successfully loaded profile from: {self.profile}")
+                except Exception:
+                    profile_source = None
+
+        # 2. Extract h0 from profile or use h_init
+        if profile_source:
+            x0 = np.array(profile_source.x)
+            if self.profile_avg_nyears and self.profile_avg_nyears > 0 and len(profile_source.t) > 1:
+                dt_out = np.mean(np.diff(profile_source.t))
+                num_steps = int(round(self.profile_avg_nyears / dt_out))
+                num_steps = max(1, num_steps)
+                if num_steps > len(profile_source.t):
+                    logging.warning(f"Cannot average over {self.profile_avg_nyears} years, only {len(profile_source.t)*dt_out:.1f} available. Averaging over entire profile history.")
+                    num_steps = len(profile_source.t)
+                h0 = np.mean(profile_source.h[-num_steps:, :], axis=0)
+            else:
+                h0 = np.array(profile_source.h[-1, :])
+        elif self.x_init is not None and self.h_init is not None:
+            logging.info("Using provided initial values for geometry.")
+            x0 = self.x_init
+            h0 = self.h_init
+        else:
+            raise GeometryError("No valid initial profile or initial values (x_init, h_init) provided.")
+
+        # 3. Interpolate h0 to the model grid
         try:
-            # If profile is a flowline2d object
-            h0 = np.array(self.profile.h[-1, :])
-            x0 = np.array(self.profile.x)
-        except:
-            try:
-                # Try loading from file
-                with open(self.profile, 'rb') as f:
-                    last_run = dill.load(f)
-                h0 = np.array(last_run.h[-1, :])
-                x0 = np.array(last_run.x)
-                logging.info(f"Successfully loaded profile: {self.profile}")
-            except Exception as error:
-                # Use provided initial values
-                logging.debug("Exception on profile loading: ", error)
-                logging.info("Did not load profile. Using provided initial values.")
-                if self.x_init is not None and self.h_init is not None:
-                    x0 = self.x_init
-                    h0 = self.h_init
-                else:
-                    raise GeometryError("No valid initial profile provided")
-        
-        # Interpolate to model grid
-        try:
-            h0_interp = interp1d(x0, h0, "linear", bounds_error=True)
+            if np.any(self.x > x0.max()) or np.any(self.x < x0.min()):
+                logging.warning(
+                    f"Extrapolating h0 to model grid. x0 range: [{x0.min():.0f}, {x0.max():.0f}], x range: [{self.x.min():.0f}, {self.x.max():.0f}]"
+                )
+            h0_interp = interp1d(x0, h0, "linear", bounds_error=False, fill_value="extrapolate")
             self.h0 = h0_interp(self.x)
-        except:
-            logging.warning(
-                f"Extrapolating h0 to model grid. x0.max() = {x0.max()}, x.max() = {self.x.max()}"
-            )
-            h0_interp = interp1d(x0, h0, "linear", fill_value="extrapolate")
-            self.h0 = h0_interp(self.x)
+        except ValueError as e:
+            raise GeometryError(f"Error during initial profile interpolation: {e}")
+
+        return profile_source
 
 
 class MassBalanceForcing(ABC):
@@ -416,7 +432,7 @@ class flowline2d:
         """Setup model grid, geometry, and output arrays"""
         # Setup geometry and grid
         self.geometry.setup_grid(self.config.delx)
-        self.geometry.load_initial_profile()
+        self.spinup_result = self.geometry.load_initial_profile()
         
         # Copy geometry attributes for easy access
         self.x = self.geometry.x
@@ -427,6 +443,16 @@ class flowline2d:
         self.nxs = self.geometry.nxs
         self.h0 = self.geometry.h0
         
+        # Store original geometry grid for posterity
+        if self.spinup_result:
+            self.x_gr = self.spinup_result.geometry.x_gr
+            self.zb_gr = self.spinup_result.geometry.zb_gr
+            self.w_geom = self.spinup_result.geometry.w_geom
+        else:
+            self.x_gr = self.geometry.x_gr
+            self.zb_gr = self.geometry.zb_gr
+            self.w_geom = self.geometry.w_geom
+
         # Calculate number of time steps
         self.nts = round(np.floor((self.config.tf - self.config.ts) / self.config.delt))
         
@@ -516,6 +542,19 @@ class flowline2d:
                 self.dwdx, self.w, self.config.delt, self.config.min_thick,
                 self.config.n, self.config.k
             )
+
+            # Check for numerical instability
+            if np.any(np.isnan(h)):
+                self.no_error = False
+                error_msg = (
+                    f"Numerical instability detected at model time t = {t:.2f} years.\n"
+                    f"NaN values found in thickness 'h'.\n"
+                    f"Diagnostics (at last stable step):\n"
+                    f"  - Max h: {np.nanmax(h) if not np.all(np.isnan(h)) else 'all NaN'}\n"
+                    f"  - Max b: {np.nanmax(b)}\n"
+                    f"  - Max F: {np.nanmax(F)}\n"
+                )
+                raise NumericalInstabilityError(error_msg)
 
             # Save output at specified intervals
             if t / self.config.deltout == np.floor(t / self.config.deltout):
@@ -627,6 +666,18 @@ class flowline2d:
             },
             attrs=asdict(self.config)
         )
+        
+        # Add spin-up metadata if available
+        if hasattr(self, 'spinup_result') and self.spinup_result is not None:
+            if isinstance(self.spinup_result, flowline2d):
+                spinup_config = asdict(self.spinup_result.config)
+                for k, v in spinup_config.items():
+                    # Avoid overwriting main config attributes
+                    if f'spinup_{k}' not in ds.attrs:
+                         ds.attrs[f'spinup_{k}'] = str(v) # Convert to string for safety
+            elif isinstance(self.spinup_result, str):
+                ds.attrs['spinup_profile_path'] = self.spinup_result
+
         return ds
 
     def copy(self):
