@@ -474,12 +474,15 @@ class TestMassBalanceResponses:
         """Test that +/- mass balance changes produce symmetric length responses"""
         ss_result = self.get_steady_state_setup('uniform')
         
+        # This is the steady-state mass balance profile
+        ss_b_profile = ss_result.b_profile[-1, :]
+        
         # Test positive step change
         bp_pos = np.zeros(int(np.ceil(test_config.tf - test_config.ts)))
         bp_pos[100:] = 0.1  # +0.1 m/yr starting year 100
         
         forcing_pos = DirectMassBalanceForcing(
-            b0=0, bp=bp_pos
+            b0=ss_b_profile, bp=bp_pos
         )
         geometry_pos = FlowlineGeometry(
             ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
@@ -492,13 +495,45 @@ class TestMassBalanceResponses:
         bp_neg[100:] = -0.1  # -0.1 m/yr starting year 100
         
         forcing_neg = DirectMassBalanceForcing(
-            b0=0, bp=bp_neg
+            b0=ss_b_profile, bp=bp_neg
         )
         geometry_neg = FlowlineGeometry(
             ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
         )
         model_neg = flowline2d(config=test_config, geometry=geometry_neg, forcing=forcing_neg)
         result_neg = model_neg.run()
+
+        # Debugging plot
+        fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+        fig.suptitle('Debug: Step Change Symmetry Profiles', fontsize=14)
+
+        # Plot initial steady-state profile
+        ss_edge_idx = ss_result.edge_idx[-1]
+        ax.plot(ss_result.x / 1000, ss_result.zb, 'k-', linewidth=2, label='Bed')
+        ax.plot(ss_result.x[:ss_edge_idx] / 1000, 
+                ss_result.zb[:ss_edge_idx] + ss_result.h[-1, :ss_edge_idx],
+                'g--', linewidth=2, label='Initial Steady State')
+
+        # Plot final profile for positive step
+        pos_edge_idx = result_pos.edge_idx[-1]
+        ax.plot(result_pos.x[:pos_edge_idx] / 1000,
+                result_pos.zb[:pos_edge_idx] + result_pos.h[-1, :pos_edge_idx],
+                'b-', linewidth=2, label='Final (+) Step')
+
+        # Plot final profile for negative step
+        neg_edge_idx = result_neg.edge_idx[-1]
+        if neg_edge_idx > 0:
+            ax.plot(result_neg.x[:neg_edge_idx] / 1000,
+                    result_neg.zb[:neg_edge_idx] + result_neg.h[-1, :neg_edge_idx],
+                    'r-', linewidth=2, label='Final (-) Step')
+
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Elevation (m)')
+        ax.set_title('Initial and Final Glacier Profiles')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.savefig(QC_FIGURE_DIR / 'debug_step_change_profiles.png', dpi=150, bbox_inches='tight')
+        plt.close()
         
         # Create QC figure
         results_dict = {
@@ -525,13 +560,16 @@ class TestMassBalanceResponses:
         """Test glacier response to white noise mass balance forcing"""
         ss_result = self.get_steady_state_setup('uniform')
         
+        # This is the steady-state mass balance profile
+        ss_b_profile = ss_result.b_profile[-1, :]
+        
         # Create white noise mass balance
         np.random.seed(42)  # For reproducible tests
         nyears = int(np.ceil(test_config.tf - test_config.ts))
         bp_noise = np.random.normal(0, 0.65, nyears)  # 0.65 m/yr std dev
         
         forcing = DirectMassBalanceForcing(
-            b0=0, bp=bp_noise
+            b0=ss_b_profile, bp=bp_noise
         )
         geometry = FlowlineGeometry(
             ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
@@ -601,6 +639,9 @@ class TestMassBalanceResponses:
         """Test glacier response to linear mass balance trend"""
         ss_result = self.get_steady_state_setup('uniform')
         
+        # This is the steady-state mass balance profile
+        ss_b_profile = ss_result.b_profile[-1, :]
+        
         # Create linear trend: 0 to -1 m/yr over 100 years, then steady
         nyears = int(np.ceil(test_config.tf - test_config.ts))
         bp_trend = np.zeros(nyears)
@@ -613,7 +654,7 @@ class TestMassBalanceResponses:
             bp_trend[100:] = -1
         
         forcing = DirectMassBalanceForcing(
-            b0=0, bp=bp_trend
+            b0=ss_b_profile, bp=bp_trend
         )
         geometry = FlowlineGeometry(
             ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
@@ -834,7 +875,7 @@ class TestBoundaryConditions:
         h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
         
         # High accumulation at head
-        forcing = DirectMassBalanceForcing(b0=5, ts=0, tf=50)  # +5 m/yr everywhere
+        forcing = DirectMassBalanceForcing(b0=5)  # +5 m/yr everywhere
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
@@ -859,7 +900,7 @@ class TestBoundaryConditions:
         h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
         
         # Strong ablation to test terminus retreat
-        forcing = DirectMassBalanceForcing(b0=-2, ts=0, tf=50)  # -2 m/yr everywhere
+        forcing = DirectMassBalanceForcing(b0=-2)  # -2 m/yr everywhere
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
@@ -895,7 +936,7 @@ class TestMassConservation:
         h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
         
         # Uniform mass balance
-        forcing = DirectMassBalanceForcing(b0=1, ts=0, tf=20)  # +1 m/yr everywhere
+        forcing = DirectMassBalanceForcing(b0=1)  # +1 m/yr everywhere
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
@@ -1031,7 +1072,7 @@ class TestOutputFormats:
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
         h_init = np.maximum(0, 50 * (1 - x_gr / 1500))
         
-        forcing = DirectMassBalanceForcing(b0=0.5, ts=0, tf=10)
+        forcing = DirectMassBalanceForcing(b0=0.5)
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         return model.run()
@@ -1108,7 +1149,7 @@ class TestFeatures:
         x_gr, zb_gr, w_geom = TestGeometry().create_variable_width(basic_params)
         h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
         
-        forcing = DirectMassBalanceForcing(b0=0, ts=0, tf=20)
+        forcing = DirectMassBalanceForcing(b0=0)
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
@@ -1245,7 +1286,7 @@ class TestErrorHandling:
         h_init = np.maximum(0, 50 * (1 - x_gr / 1500))
         
         # Extremely negative mass balance
-        forcing = DirectMassBalanceForcing(b0=-50, ts=0, tf=5)  # -50 m/yr
+        forcing = DirectMassBalanceForcing(b0=-50)  # -50 m/yr
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         

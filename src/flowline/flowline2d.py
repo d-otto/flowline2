@@ -297,7 +297,10 @@ class DirectMassBalanceForcing(MassBalanceForcing):
     def get_mass_balance(self, x, h_eff, year_idx):
         """Calculate mass balance directly"""
         # Start with base mass balance
-        b = np.full_like(x, self.b0, dtype=float)
+        if np.isscalar(self.b0):
+            b = np.full_like(x, self.b0, dtype=float)
+        else:
+            b = np.array(self.b0, dtype=float)
         
         # Add elevation-dependent component
         if self.dbdz is not None:
@@ -980,6 +983,8 @@ def calc_pdd(T, Tamp, days=365):
         if T[i] <= -Tamp:
             # If mean temp is very low, no positive temps will occur
             pdd[i] = 0
+        elif T[i] >= Tamp:
+            pdd[i] = T[i]
         else:
             # Semi-analytical solution for positive degree days
             # when temperature follows a sinusoidal pattern
