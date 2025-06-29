@@ -263,16 +263,25 @@ class DirectMassBalanceForcing(MassBalanceForcing):
     
     def get_mass_balance(self, x, h_eff, year_idx):
         """Calculate mass balance directly"""
+        # Ensure year_idx is within bounds
+        year_idx = min(year_idx, len(self.bp) - 1, len(self.bal) - 1)
+        
         if self.bz is not None:
+            # Clip elevation indices to valid range
+            h_indices = np.clip(h_eff.astype(int), 0, len(self.bz) - 1)
             b = (self.b0 + self.bp[year_idx] * self.sigb + 
-                 self.bal[year_idx] + self.bz[h_eff.astype(int)])
+                 self.bal[year_idx] + self.bz[h_indices])
         elif self.bx is not None:
+            # Clip distance indices to valid range  
+            x_indices = np.clip(x.astype(int), 0, len(self.bx) - 1)
             b = (self.b0 + self.bp[year_idx] * self.sigb + 
-                 self.bal[year_idx] + self.bx[x.astype(int)])
+                 self.bal[year_idx] + self.bx[x_indices])
         else:
             # Simple case: just base mass balance plus perturbations
-            b = (self.b0 + self.bp[year_idx] * self.sigb + 
-                 self.bal[year_idx]) * np.ones_like(x)
+            # Ensure scalar values are properly broadcast
+            bp_val = self.bp[year_idx] if hasattr(self.bp[year_idx], '__len__') else self.bp[year_idx]
+            bal_val = self.bal[year_idx] if hasattr(self.bal[year_idx], '__len__') else self.bal[year_idx]
+            b = (self.b0 + bp_val * self.sigb + bal_val) * np.ones_like(x)
         
         return b, {}
     
