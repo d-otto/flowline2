@@ -409,7 +409,7 @@ class flowline2d:
             self.P = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
             self.melt = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
             if hasattr(self.forcing, 'T2melt') and self.forcing.T2melt == 'pdd':
-                self.pdd = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
+                self.pdd = np.full((nouts, self.nxs), fill_value=0.0, dtype="float")
 
     def run(self, **kwargs):
         """Single entry point for running the model"""
@@ -529,13 +529,17 @@ class flowline2d:
 
     def to_pandas(self):
         d = dict(
-            T=self.T,
             area=self.area,
             bal=self.gwb,
             edge=self.edge_idx,
             edge_m=self.edge,
             ela=self.ela,
         )
+        
+        # Only add T if it exists (for temperature-precipitation forcing)
+        if hasattr(self, 'T') and self.T is not None:
+            d['T'] = self.T
+            
         df = pd.DataFrame(d, index=self.t)
         return df
 
@@ -770,7 +774,7 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
             )  # flux at plus half grid point
             # Qm[0] = 0  # flux at minus half grid point
             dhdt[0] = b[0] - Qp[0] / (delx / 2) - (Qp[0] + Qm[0]) / (2 * w[0]) * dwdx[0]
-        elif (h[j] <= 0) & (h[j - 1] > 1):  # glacier toe condition
+        elif (h[j] <= min_thick) & (h[j - 1] > min_thick):  # glacier toe condition
             # Qp[j] = 0
             h_ave = h[j - 1] / 2
             dhdx = -h[j - 1] / delx  # correction inserted ght nov-24-04
@@ -778,7 +782,7 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
                 -rho_g_cu * (dhdx + dzdx[j - 1]) ** 3 * (fd * h_ave**(n+2) + fs * h_ave**k)
             )  # glacier toe qm
             dhdt[j] = b[j] + Qm[j] / delx - (Qp[j] + Qm[j]) / (2 * w[j]) * dwdx[j]
-        elif (h[j] == 0) & (h[j - 1] < 1):  # beyond glacier toe - no glacier flux
+        elif (h[j] <= min_thick) & (h[j - 1] <= min_thick):  # beyond glacier toe - no glacier flux
             dhdt[j] = b[j]
             # Qp[j] = 0
             # Qm[j] = 0
@@ -799,11 +803,14 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
     # ----------------------------------------
     #dhdt[nxs] = 0  # enforce no change at boundary
     h = np.core.umath.maximum(h + dhdt * delt, 0)
-    # edge = (
-    #     #len(h) - np.searchsorted(h[::1], min_thick) - 1
-    #     np.searchsorted(h, min_thick)
-    # )  # very fast location of the terminus https://stackoverflow.com/questions/16243955/numpy-first-occurrence-of-value-greater-than-existing-value
-    edge = np.argmax(h<min_thick)
+    
+    # More robust edge detection
+    edge = nxs - 1  # Default to end of domain
+    for i in range(nxs):
+        if h[i] < min_thick:
+            edge = i
+            break
+    
     F = Qm + Qp
     return h, edge, F
 
