@@ -456,7 +456,7 @@ class TestMassBalanceResponses:
         bp_pos[500:] = 0.5  # +0.5 m/yr after year 500
         
         forcing_pos = DirectMassBalanceForcing(
-            b0=0, bp=bp_pos, ts=test_config.ts, tf=test_config.tf
+            b0=0, bp=bp_pos
         )
         geometry_pos = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model_pos = flowline2d(config=test_config, geometry=geometry_pos, forcing=forcing_pos)
@@ -467,7 +467,7 @@ class TestMassBalanceResponses:
         bp_neg[500:] = -0.5  # -0.5 m/yr after year 500
         
         forcing_neg = DirectMassBalanceForcing(
-            b0=0, bp=bp_neg, ts=test_config.ts, tf=test_config.tf
+            b0=0, bp=bp_neg
         )
         geometry_neg = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model_neg = flowline2d(config=test_config, geometry=geometry_neg, forcing=forcing_neg)
