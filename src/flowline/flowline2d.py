@@ -33,7 +33,7 @@ from scipy.interpolate import interp1d
 from scipy.stats import norm
 import logging
 from tqdm import tqdm
-import gm
+# import gm  # Commented out - local package not currently installed
 
 
 # Custom exceptions
@@ -572,7 +572,7 @@ class flowline2d:
         )
         ax[1, 2].axvline(x=(self.edge / 1000).mean(), ls="--", lw=2, c="black", label="Mean")
         ax[1, 2].annotate(
-            f"$\sigma_l$ = {np.std(self.edge / 1000):0.4f}\n" f"mean = {np.mean(self.edge):0.4f}",
+            f"$\\sigma_l$ = {np.std(self.edge / 1000):0.4f}\n" f"mean = {np.mean(self.edge):0.4f}",
             xy=(0.05, 0.05),
             xycoords="axes fraction",
         )
@@ -862,7 +862,8 @@ class flowline2d:
         diag.loc['b', 'mean_025'], diag.loc['b', 'mean_975'] = sci.stats.t.interval(
             0.95, df, loc=diag.loc['b', 'mean'], scale=diag.loc['b', 'std']
         )
-        diag.loc['b', 'std_025'], diag.loc['b', 'std_975'] = gm.std_cinterval(b, 0.95)
+        # diag.loc['b', 'std_025'], diag.loc['b', 'std_975'] = gm.std_cinterval(b, 0.95)  # gm not available
+        diag.loc['b', 'std_025'] = diag.loc['b', 'std_975'] = np.nan
         try:
             diag.loc['T', 'std'] = res.T[tslice].mean(axis=1).std()
             diag.loc['P', 'std'] = res.P[tslice].mean(axis=1).std()
@@ -873,7 +874,8 @@ class flowline2d:
         diag.loc['L', 'mean_025'], diag.loc['L', 'mean_975'] = sci.stats.t.interval(
             0.95, df, loc=diag.loc['L', 'mean'], scale=diag.loc['L', 'std']
         )
-        diag.loc['L', 'std_025'], diag.loc['L', 'std_975'] = gm.std_cinterval(res.edge[tslice], 0.95)
+        # diag.loc['L', 'std_025'], diag.loc['L', 'std_975'] = gm.std_cinterval(res.edge[tslice], 0.95)  # gm not available
+        diag.loc['L', 'std_025'] = diag.loc['L', 'std_975'] = np.nan
         diag.loc['Hmax', 'mean'] = res.h[tslice].max(axis=1).mean()
         diag.loc['Hmax', 'std'] = res.h[tslice].max(axis=1).std()
         diag.loc['Hmax', 'mean_025'], diag.loc['Hmax', 'mean_975'] = sci.stats.t.interval(
@@ -962,7 +964,8 @@ class flowline2d:
 
         res = self.copy()
         t = 200
-        acx = gm.acf(res.edge, t)
+        # acx = gm.acf(res.edge, t)  # gm not available
+        acx = np.correlate(res.edge, res.edge, mode='full')  # Simple placeholder
         out = sci.optimize.curve_fit(
             fit_acf,
             np.arange(0, t),
