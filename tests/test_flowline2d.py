@@ -180,8 +180,6 @@ class TestMassBalanceForcing:
         """Direct mass balance forcing parameters"""
         return {
             'b0': 0,  # Base mass balance
-            'ts': 0,
-            'tf': 100
         }
     
     def test_tp_forcing_creation(self, tp_params):
@@ -198,6 +196,9 @@ class TestMassBalanceForcing:
         forcing = DirectMassBalanceForcing(**direct_mb_params)
         
         assert forcing.b0 == direct_mb_params['b0']
+        assert forcing.bp is None  # Should be None by default
+        assert forcing.dbdz is None  # Should be None by default
+        assert forcing.dbdx is None  # Should be None by default
     
     def test_mass_balance_calculation(self, tp_params):
         """Test mass balance calculation from T-P forcing"""

@@ -244,44 +244,66 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
 
 
 class DirectMassBalanceForcing(MassBalanceForcing):
-    """Direct mass balance forcing"""
+    """Direct mass balance forcing with optional spatial gradients and temporal anomalies"""
     
-    def __init__(self, b0, bp=None, bal=None, sigb=1, bz=None, bx=None, ts=0, tf=2025):
-        self.b0 = b0
-        self.sigb = sigb
-        self.bz = bz
-        self.bx = bx
+    def __init__(self, b0=0, bp=None, dbdz=None, dbdx=None):
+        """
+        Initialize direct mass balance forcing
         
-        nyrs = int(tf - ts)
+        Parameters
+        ----------
+        b0 : float
+            Base mass balance rate (m/yr)
+        bp : float, array-like, or None
+            Mass balance anomaly time series (m/yr). Can be:
+            - float: constant anomaly for all time
+            - array: time series of anomalies (one value per year)
+            - None: no anomaly (default)
+        dbdz : array-like or None
+            Mass balance gradient with elevation (m/yr per m elevation).
+            Array should be indexed by elevation in meters.
+        dbdx : array-like or None  
+            Mass balance gradient with distance (m/yr per m distance).
+            Array should be indexed by distance in meters.
+        """
+        self.b0 = b0
+        self.dbdz = dbdz
+        self.dbdx = dbdx
+        
+        # Handle bp (mass balance anomaly)
         if bp is None:
-            bp = np.zeros(nyrs)
-        if bal is None:
-            bal = np.zeros(nyrs)
-            
-        self.bp = bp
-        self.bal = bal
+            self.bp = None
+        elif np.isscalar(bp):
+            self.bp = bp  # Constant anomaly
+        else:
+            self.bp = np.array(bp)  # Time series
     
     def get_mass_balance(self, x, h_eff, year_idx):
         """Calculate mass balance directly"""
-        # Ensure year_idx is within bounds
-        year_idx = min(year_idx, len(self.bp) - 1, len(self.bal) - 1)
+        # Start with base mass balance
+        b = np.full_like(x, self.b0, dtype=float)
         
-        if self.bz is not None:
+        # Add elevation-dependent component
+        if self.dbdz is not None:
             # Clip elevation indices to valid range
-            h_indices = np.clip(h_eff.astype(int), 0, len(self.bz) - 1)
-            b = (self.b0 + self.bp[year_idx] * self.sigb + 
-                 self.bal[year_idx] + self.bz[h_indices])
-        elif self.bx is not None:
-            # Clip distance indices to valid range  
-            x_indices = np.clip(x.astype(int), 0, len(self.bx) - 1)
-            b = (self.b0 + self.bp[year_idx] * self.sigb + 
-                 self.bal[year_idx] + self.bx[x_indices])
-        else:
-            # Simple case: just base mass balance plus perturbations
-            # Ensure scalar values are properly broadcast
-            bp_val = self.bp[year_idx] if hasattr(self.bp[year_idx], '__len__') else self.bp[year_idx]
-            bal_val = self.bal[year_idx] if hasattr(self.bal[year_idx], '__len__') else self.bal[year_idx]
-            b = (self.b0 + bp_val * self.sigb + bal_val) * np.ones_like(x)
+            h_indices = np.clip(h_eff.astype(int), 0, len(self.dbdz) - 1)
+            b += self.dbdz[h_indices]
+        
+        # Add distance-dependent component  
+        if self.dbdx is not None:
+            # Clip distance indices to valid range
+            x_indices = np.clip(x.astype(int), 0, len(self.dbdx) - 1)
+            b += self.dbdx[x_indices]
+        
+        # Add temporal anomaly
+        if self.bp is not None:
+            if np.isscalar(self.bp):
+                # Constant anomaly
+                b += self.bp
+            else:
+                # Time series anomaly - clip year_idx to valid range
+                year_idx_clipped = np.clip(year_idx, 0, len(self.bp) - 1)
+                b += self.bp[year_idx_clipped]
         
         return b, {}
     
@@ -355,10 +377,34 @@ class flowline2d:
                 ts=self.config.ts, tf=self.config.tf
             )
         elif mode == 'b':
+            # Combine bp and bal for backward compatibility
+            bp_combined = kwargs.get('bp')
+            bal = kwargs.get('bal')
+            
+            if bp_combined is not None and bal is not None:
+                # If both exist, add them together
+                if np.isscalar(bp_combined) and np.isscalar(bal):
+                    bp_final = bp_combined + bal
+                else:
+                    bp_combined = np.atleast_1d(bp_combined)
+                    bal = np.atleast_1d(bal)
+                    # Ensure same length, pad with zeros if needed
+                    max_len = max(len(bp_combined), len(bal))
+                    bp_padded = np.pad(bp_combined, (0, max_len - len(bp_combined)), 'constant')
+                    bal_padded = np.pad(bal, (0, max_len - len(bal)), 'constant')
+                    bp_final = bp_padded + bal_padded
+            elif bp_combined is not None:
+                bp_final = bp_combined
+            elif bal is not None:
+                bp_final = bal
+            else:
+                bp_final = None
+            
             self.forcing = DirectMassBalanceForcing(
-                b0=kwargs.get('b0'), bp=kwargs.get('bp'), bal=kwargs.get('bal'),
-                sigb=kwargs.get('sigb', 1), bz=kwargs.get('bz'), bx=kwargs.get('bx'),
-                ts=self.config.ts, tf=self.config.tf
+                b0=kwargs.get('b0', 0),
+                bp=bp_final,
+                dbdz=kwargs.get('bz'),  # Rename bz to dbdz for clarity
+                dbdx=kwargs.get('bx')   # Rename bx to dbdx for clarity
             )
         else:
             raise ValueError(f"Unknown mode: {mode}")
