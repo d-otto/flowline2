@@ -475,7 +475,7 @@ class TestMassBalanceResponses:
         ss_result = self.get_steady_state_setup('uniform')
         
         # Test positive step change
-        bp_pos = np.zeros(int(test_config.tf - test_config.ts)+1)
+        bp_pos = np.zeros(int(np.ceil(test_config.tf - test_config.ts)))
         bp_pos[100:] = 0.1  # +0.1 m/yr starting year 100
         
         forcing_pos = DirectMassBalanceForcing(
@@ -488,7 +488,7 @@ class TestMassBalanceResponses:
         result_pos = model_pos.run()
         
         # Test negative step change
-        bp_neg = np.zeros(int(test_config.tf - test_config.ts)+1)
+        bp_neg = np.zeros(int(np.ceil(test_config.tf - test_config.ts)))
         bp_neg[100:] = -0.1  # -0.1 m/yr starting year 100
         
         forcing_neg = DirectMassBalanceForcing(
@@ -527,7 +527,7 @@ class TestMassBalanceResponses:
         
         # Create white noise mass balance
         np.random.seed(42)  # For reproducible tests
-        nyears = int(test_config.tf - test_config.ts)
+        nyears = int(np.ceil(test_config.tf - test_config.ts))
         bp_noise = np.random.normal(0, 0.65, nyears)  # 0.65 m/yr std dev
         
         forcing = DirectMassBalanceForcing(
@@ -602,7 +602,7 @@ class TestMassBalanceResponses:
         ss_result = self.get_steady_state_setup('uniform')
         
         # Create linear trend: 0 to -1 m/yr over 100 years, then steady
-        nyears = int(test_config.tf - test_config.ts)
+        nyears = int(np.ceil(test_config.tf - test_config.ts))
         bp_trend = np.zeros(nyears)
         
         # Linear decrease for first 100 years

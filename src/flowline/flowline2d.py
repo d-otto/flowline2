@@ -212,7 +212,7 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
         self.pdd_beta = pdd_beta
         self.ts = ts
         
-        nyrs = int(tf - ts)
+        nyrs = int(np.ceil(tf - ts))
         
         # Initialize climate arrays
         if T is None:
@@ -301,12 +301,15 @@ class DirectMassBalanceForcing(MassBalanceForcing):
         
         # Add elevation-dependent component
         if self.dbdz is not None:
-            b += self.dbdz[h_eff.astype(int)]
+            # Clip elevation indices to valid range to prevent crashes
+            h_indices = np.clip(h_eff.astype(int), 0, len(self.dbdz) - 1)
+            b += self.dbdz[h_indices]
         
         # Add distance-dependent component  
         if self.dbdx is not None:
-            # Clip distance indices to valid range
-            b += self.dbdx[x.astype(int)]
+            # Clip distance indices to valid range to prevent crashes
+            x_indices = np.clip(x.astype(int), 0, len(self.dbdx) - 1)
+            b += self.dbdx[x_indices]
         
         # Add temporal anomaly
         bp_val = 0.0
@@ -318,8 +321,11 @@ class DirectMassBalanceForcing(MassBalanceForcing):
                 # Time series anomaly
                 bp_val = self.bp[year_idx]
             b += bp_val
+
+        accumulation = np.maximum(0, b)
+        melt = np.maximum(0, -b)
         
-        return b, {'b_anomaly': bp_val, 'b': b}
+        return b, {'b_anomaly': bp_val, 'accumulation': accumulation, 'melt': melt}
     
     def get_climate_vars(self, year_idx):
         """Get climate variables for output"""
@@ -503,6 +509,7 @@ class flowline2d:
         """Unified model run method"""
         yr = self.config.ts - 1  # -1 because we increment at start of loop
         idx_out = 0
+        t_out = 0.0  # Next time to save output
 
         h = self.h0.copy()  # Initial thickness
         
@@ -552,9 +559,11 @@ class flowline2d:
                 )
                 raise NumericalInstabilityError(error_msg)
 
-            # Save output
-            self._save_output(idx_out, t, h, b, edge_idx, F, climate_vars)
-            idx_out += 1
+            # Save output at specified interval
+            if t >= t_out and idx_out < len(self.t):
+                self._save_output(idx_out, t, h, b, edge_idx, F, climate_vars)
+                idx_out += 1
+                t_out += self.config.deltout
 
         # Check for successful completion
         self.no_error = not np.isnan(self.h[-1, 0])
