@@ -220,8 +220,7 @@ class TestSteadyStateInitialization:
             delx=50,
             delt=0.0125/8,
             ts=0,
-            tf=500,  # Long enough to reach steady state
-            deltout=10,  # Save every 10 years
+            tf=1000,  # Long enough to reach steady state
             gamma=6.5e-3,
             mu=0.65
         )
@@ -232,7 +231,7 @@ class TestSteadyStateInitialization:
         # Create geometry
         basic_params = {
             'length': 10000,
-            'x_gr': np.linspace(0, 10000, 21),
+            'x_gr': np.linspace(0, 20000, 21),
             'elevation_drop': 1000,
             'width': 1000
         }
@@ -261,12 +260,12 @@ class TestSteadyStateInitialization:
         """Test that model reaches steady state"""
         # Create simple forcing
         forcing_params = {
-            'T0': 15,
-            'P0': 2,
+            'T0': 10,
+            'P0': 4,
             'gamma': 6.5e-3,
             'mu': 0.65,
             'ts': 0,
-            'tf': 500
+            'tf': 1000
         }
         
         x, h_final, result = self.create_steady_state_profile(
