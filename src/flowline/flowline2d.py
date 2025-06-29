@@ -510,6 +510,8 @@ class flowline2d:
         yr = self.config.ts - 1  # -1 because we increment at start of loop
         idx_out = 0
         t_out = 0.0  # Next time to save output
+        b = np.zeros(self.nxs)
+        climate_vars = {}
 
         h = self.h0.copy()  # Initial thickness
         
@@ -523,9 +525,11 @@ class flowline2d:
         ):
             t = self.config.delt * i  # time in fractional years
 
-            # Update climate every year
-            if t == t // 1:
-                yr = yr + 1  # increment integer year on the initial loop to = ts
+            # Update climate on integer year change
+            current_model_year = self.config.ts + int(np.floor(t))
+            if current_model_year > yr:
+                yr = current_model_year
+                year_idx = yr - self.config.ts
 
                 # Calculate effective height for mass balance
                 if self.config.hmb:
@@ -535,7 +539,7 @@ class flowline2d:
 
                 # Get mass balance from forcing
                 b, climate_vars = self.forcing.get_mass_balance(
-                    self.x, h_eff, yr - self.config.ts  # year_idx = 0 for initial loop
+                    self.x, h_eff, year_idx
                 )
 
             # Solve shallow ice approximation
