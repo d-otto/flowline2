@@ -13,6 +13,8 @@ import copy
 import collections
 import traceback
 from functools import partial
+from dataclasses import dataclass, asdict
+from abc import ABC, abstractmethod
 
 import dill
 import matplotlib as mpl
@@ -34,534 +36,476 @@ from tqdm import tqdm
 import gm
 
 
-class flowline2d:
-    def __init__(
-        self,
-        x_gr,
-        zb_gr,
-        w_geom,
-        mode='TP',
-        sigT=1,
-        sigP=1,
-        sigb=1,
-        T0=None,
-        P0=None,
-        T=None,
-        P=None,
-        x_init=None,
-        x_geom=None,
-        h_geom=None,
-        profile=None,
-        t_stab=None,
-        temp=None,
-        gamma=6.5e-3,
-        dpdz=None,
-        mu=0.65,
-        g=9.81,
-        rho=916.8,
-        fd=1.9e-24,
-        fs=5.7e-20,
-        delx=50,
-        delt=0.0125 / 8,
-        ts=0,
-        tf=2025,
-        dt_plot=100,
-        rt_plot=False,
-        xlim0=None,
-        min_thick=1,
-        hmb=True,
-        T2melt=None,
-        pdd_Tamp=None,
-        pdd_beta=None,
-        bz=None,
-        bx=None,
-        bp=None,
-        bal=None,
-        b0=None,
-        deltout=1,
-        n=3,
-        k=3,
-    ):
-        """2d flowline model
-
-        This module demonstrates documentation as specified by the `NumPy
-        Documentation HOWTO`_. Docstrings may extend over multiple lines. Sections
-        are created with a section header followed by an underline of equal length.
-
-        Parameters
-        ----------
-        x_gr : array-like
-            x dimension of bed topography; m
-        zb_gr : array-like
-            z dimension of bed topography; m
-        x_geom : array-like
-            x dimension of glacier width; m
-        w_geom : array-like
-            width of glacier along flowline; m
-        x_init : array-like
-            x dimension of initial thickness profile; m
-        h_init : array-like
-            initial ice thickness profile; m
-        T : array-like
-            random state for temperature
-        P : array-like
-            random state for precipitation
-        rho : float
-            Ice density kg/m^3
-        g : float
-            Gravity m/s^2
-        mu : float
-            Melt rate m/yr/degC
-        n : float
-            Glenn's flow law parameter. Default n = 3
-        gamma : float
-            Temperature lapse rate degC/km
-        sigT : float
-            Temperature standard deviation degC
-        sigP : float
-            Precipitation standard deviation m/yr
-        T0 : float
-            Baseline temperature degC
-        fd : float
-            Deformation parameter Pa^-3 s^-2
-        fs : float
-            Sliding parameter Pa^-3 s^-1 m^2
-        delx : int
-            Grid spacing in m
-        delt : float
-            Time step in yrs suitable for 200m yr^-1
-        ts : float
-            Starting time yr
-        tf : float
-            Ending time yr
-        dt_plot : int
-            Plotting interval yr
-        rt_plot : bool
-            Whether there should be real time plotting while the model is running.
-        xlim0 : float
-            Left limit for plots (yrs)
+# Custom exceptions
+class FlowlineModelError(Exception):
+    """Base exception for flowline model errors"""
+    pass
 
 
-        Returns
-        -------
-        bool
-            True if successful, False otherwise.
+class GeometryError(FlowlineModelError):
+    """Errors related to geometry setup"""
+    pass
 
-        """
 
-        # # How well do the equilibrium responses match?
-        # # How well does the timescale match?
-        # # What is the distribution of trends?
-        # # How does the run length work? Does it follow a Poisson process?
-        # # Is the dynamical model consistent with a Gaussian pdf?
+class NumericalInstabilityError(FlowlineModelError):
+    """Errors from numerical instabilities"""
+    pass
 
-        self.init_args = locals().copy()
 
-        # #-----------------
-        # #define parameters
-        # #-----------------
+@dataclass
+class FlowlineConfig:
+    """Configuration parameters for the flowline model"""
+    # Physical parameters
+    rho: float = 916.8  # Ice density kg/m^3
+    g: float = 9.81     # Gravity m/s^2
+    fd: float = 1.9e-24 # Deformation parameter Pa^-3 s^-2
+    fs: float = 5.7e-20 # Sliding parameter Pa^-3 s^-1 m^2
+    n: int = 3          # Glenn's flow law parameter
+    k: int = 3          # Sliding law parameter
+    
+    # Numerical parameters
+    delx: float = 50           # Grid spacing in m
+    delt: float = 0.0125 / 8   # Time step in yrs
+    ts: float = 0              # Starting time yr
+    tf: float = 2025           # Ending time yr
+    min_thick: float = 1       # Minimum thickness for ice at terminus
+    
+    # Output parameters
+    deltout: float = 1         # Frequency to save output
+    dt_plot: int = 100         # Plotting interval yr
+    rt_plot: bool = False      # Real time plotting
+    xlim0: float = None        # Left limit for plots
+    
+    # Climate parameters
+    gamma: float = 6.5e-3      # Temperature lapse rate degC/km
+    mu: float = 0.65           # Melt rate m/yr/degC
+    hmb: bool = True           # Height mass balance feedback
+    
+    def __post_init__(self):
+        # Convert deformation parameters from seconds to years
+        self.fd = self.fd * np.pi * 1e7
+        self.fs = self.fs * np.pi * 1e7
+        
+        # Validation
+        if self.tf <= self.ts:
+            raise ValueError("tf must be greater than ts")
+        if self.delx <= 0:
+            raise ValueError("delx must be positive")
+        if self.delt <= 0:
+            raise ValueError("delt must be positive")
 
-        xmx = np.max(delx * np.floor(x_geom / delx))  # round to neaest delx
-        x = np.arange(0, xmx, delx)  # x array
-        nxs = len(x)
 
-        fd = fd * np.pi * 1e7
-        fs = fs * np.pi * 1e7  # convert from seconds to years
-
-        # ---------------------------------
-        # different glacier bed geometries
-        # ---------------------------------
-
-        zb = interp1d(x_gr, zb_gr)  # elevation of the bed
-        zb = zb(x)
-        w = interp1d(x_gr, w_geom)  # width @ surface
-        w = w(x)
-        dzbdx = np.gradient(zb, x)  # slope of glacer bed geometries.
-        dwdx = np.gradient(w, x)  # change in width between grid cells
-
-        # geometry errors/warnings
-        if any(dzbdx == 0):
-            logging.warning(f'Bed slope is zero at {(dzbdx == 0).argmax()}.')
-        if any(dzbdx[0:2] > 0):
+class FlowlineGeometry:
+    """Handles glacier geometry setup and interpolation"""
+    
+    def __init__(self, x_gr, zb_gr, w_geom, x_init=None, h_init=None, profile=None):
+        self.x_gr = np.array(x_gr)
+        self.zb_gr = np.array(zb_gr)
+        self.w_geom = np.array(w_geom)
+        self.x_init = x_init
+        self.h_init = h_init
+        self.profile = profile
+        
+    def setup_grid(self, delx):
+        """Create model grid and interpolate geometry"""
+        xmx = np.max(delx * np.floor(self.x_gr / delx))
+        self.x = np.arange(0, xmx, delx)
+        self.nxs = len(self.x)
+        
+        # Interpolate bed elevation and width
+        zb_interp = interp1d(self.x_gr, self.zb_gr)
+        self.zb = zb_interp(self.x)
+        
+        w_interp = interp1d(self.x_gr, self.w_geom)
+        self.w = w_interp(self.x)
+        
+        # Calculate gradients
+        self.dzbdx = np.gradient(self.zb, self.x)
+        self.dwdx = np.gradient(self.w, self.x)
+        
+        # Geometry validation
+        if any(self.dzbdx == 0):
+            logging.warning(f'Bed slope is zero at {(self.dzbdx == 0).argmax()}.')
+        if any(self.dzbdx[0:2] > 0):
             logging.warning('The slope of the bed at the top of the glacier is positive. This may cause instabilities.')
+    
+    def load_initial_profile(self):
+        """Load initial thickness profile"""
+        try:
+            # If profile is a flowline2d object
+            h0 = np.array(self.profile.h[-1, :])
+            x0 = np.array(self.profile.x)
+        except:
+            try:
+                # Try loading from file
+                with open(self.profile, 'rb') as f:
+                    last_run = dill.load(f)
+                h0 = np.array(last_run.h[-1, :])
+                x0 = np.array(last_run.x)
+                logging.info(f"Successfully loaded profile: {self.profile}")
+            except Exception as error:
+                # Use provided initial values
+                logging.debug("Exception on profile loading: ", error)
+                logging.info("Did not load profile. Using provided initial values.")
+                if self.x_init is not None and self.h_init is not None:
+                    x0 = self.x_init
+                    h0 = self.h_init
+                else:
+                    raise GeometryError("No valid initial profile provided")
+        
+        # Interpolate to model grid
+        try:
+            h0_interp = interp1d(x0, h0, "linear", bounds_error=True)
+            self.h0 = h0_interp(self.x)
+        except:
+            logging.warning(
+                f"Extrapolating h0 to model grid. x0.max() = {x0.max()}, x.max() = {self.x.max()}"
+            )
+            h0_interp = interp1d(x0, h0, "linear", fill_value="extrapolate")
+            self.h0 = h0_interp(self.x)
 
-        # initialize climate forcing
-        # sorry the inputs are kind of a cluster
-        self.nts = round(np.floor((tf - ts) / delt))  # number of time steps
-        nyrs = tf - ts
-        if T is None:  # temperature
-            T = np.zeros(nyrs)
-        if P is None:  # precip
-            P = np.zeros(nyrs)
-        self.Tp = sigT * T  # Temperature perturbation
-        self.Pp = sigP * P  # Precip perturbation
-        if bp is None:   # mass balance perturbation (if T & P are not set)
-            bp = np.zeros(nyrs)
-        if bal is None:  # mass balance trend added to bp
-            self.bp = bp * sigb
-        else:
-            self.bp = bp * sigb + bal
-        if temp is None:  # temperature trend added to Tp
-            temp = np.zeros(nyrs)
-        if t_stab:  # number of years of stable climate at the beginning of the simulation
-            self.Tp.iloc[:t_stab] = 0
-            self.Pp.iloc[:t_stab] = 0
-            temp.iloc[:t_stab] = 0
-        self.ts = ts  # time start
-        self.tf = tf  # time finish
-        self.temp = temp
-        self.bal = bal
-        self.T = T
-        self.P = P
-        self.t_stab = t_stab
-        self.pdd_Tamp = pdd_Tamp  # amplitude for positive degree days
-        self.pdd_beta = pdd_beta  # beta for positive degree days
-        if mode == 'b':  # if inputs are in terms of mass balance (aka no T & P provided)
-            if bp is None:
-                bp = np.zeros(nyrs)
-            self.bp = bp
-            if bal is None:
-                bal = np.zeros(nyrs)
-            self.bal = bal
-            if sigb is None:
-                sigb = 1
-            self.sigb = sigb
-        # constants
+
+class MassBalanceForcing(ABC):
+    """Base class for mass balance forcing"""
+    
+    @abstractmethod
+    def get_mass_balance(self, x, h_eff, year_idx):
+        """Calculate mass balance for given conditions"""
+        pass
+    
+    @abstractmethod
+    def get_climate_vars(self, year_idx):
+        """Get climate variables for output"""
+        pass
+
+
+class TemperaturePrecipitationForcing(MassBalanceForcing):
+    """Temperature-precipitation based mass balance forcing"""
+    
+    def __init__(self, T0, P0, sigT=1, sigP=1, T=None, P=None, temp=None, 
+                 t_stab=None, mu=0.65, gamma=6.5e-3, dpdz=None, T2melt=None,
+                 pdd_Tamp=None, pdd_beta=None, ts=0, tf=2025):
+        self.T0 = T0
+        self.P0 = P0
         self.sigT = sigT
         self.sigP = sigP
-        self.P0 = P0  # baseline accumulation (for calibration)
-        self.T0 = T0  # baseline temp (for calibration)
-        self.mu = mu  # melt factor
-        self.gamma = gamma  # lapse rate
-        self.rho = rho  # density
-        self.g = g  # gravity
-        self.min_thick = min_thick  # minimum thickness for ice at the terminus
-        self.nxs = nxs
-        self.delt = delt
-        self.dzbdx = dzbdx
-        self.dwdx = dwdx
-        self.fd = fd
-        self.fs = fs
-        self.n = n
-        self.k = k
-        self.x = x
-        self.zb = zb
-        self.nxs = nxs
-        self.delx = delx
-        self.w = w
-        self.b0 = b0  # baseline mass balance (for calibration)
-        try:
-            self.x_geom = x_geom
-            self.h_geom = h_geom
-        except:
-            pass
-        self.profile = profile  # loaded geometry
-        self.deltout = deltout  # frequency to save output
+        self.mu = mu
+        self.gamma = gamma
+        self.T2melt = T2melt
+        self.pdd_Tamp = pdd_Tamp
+        self.pdd_beta = pdd_beta
+        self.ts = ts
+        
+        nyrs = int(tf - ts)
+        
+        # Initialize climate arrays
+        if T is None:
+            T = np.zeros(nyrs)
+        if P is None:
+            P = np.zeros(nyrs)
+        if temp is None:
+            temp = np.zeros(nyrs)
+        if dpdz is None:
+            dpdz = np.zeros(5000)  # Default elevation range
+            
+        self.Tp = sigT * T  # Temperature perturbation
+        self.Pp = sigP * P  # Precipitation perturbation
+        self.temp = temp    # Temperature trend
+        self.dpdz = dpdz    # Precipitation-elevation relationship
+        
+        # Apply stability period
+        if t_stab:
+            self.Tp[:t_stab] = 0
+            self.Pp[:t_stab] = 0
+            self.temp[:t_stab] = 0
+    
+    def get_mass_balance(self, x, h_eff, year_idx):
+        """Calculate mass balance from temperature and precipitation"""
+        P = (self.P0 + self.Pp[year_idx]) * np.ones(x.size)
+        T_wk = ((self.T0 + self.Tp[year_idx]) * np.ones(x.size) + 
+                self.temp[year_idx] - self.gamma * h_eff)
+        
+        if callable(self.T2melt):
+            melt = self.T2melt(T_wk)
+        elif self.T2melt == 'pdd':
+            pdd = calc_pdd(T_wk, self.pdd_Tamp)
+            melt = np.maximum(0, pdd * self.mu)
+        else:
+            melt = np.maximum(0, T_wk * self.mu)
+        
+        return P - melt, {'P': P, 'melt': melt, 'T': T_wk, 'pdd': pdd if self.T2melt == 'pdd' else None}
+    
+    def get_climate_vars(self, year_idx):
+        """Get climate variables for output"""
+        return {
+            'T': self.T0 + self.Tp[year_idx] + self.temp[year_idx]
+        }
 
-        # look up table
+
+class DirectMassBalanceForcing(MassBalanceForcing):
+    """Direct mass balance forcing"""
+    
+    def __init__(self, b0, bp=None, bal=None, sigb=1, bz=None, bx=None, ts=0, tf=2025):
+        self.b0 = b0
+        self.sigb = sigb
         self.bz = bz
         self.bx = bx
-        if dpdz is None:
-            dpdz = np.zeros(int(zb.max()) + 500)
-        self.dpdz = dpdz
-
-        # option flags
-        self.mode = mode
-        self.hmb = hmb  # height mass balance
-        self.dt_plot = dt_plot
-        self.rt_plot = rt_plot
         
-        # dynamic flags? could be callable or string or None
-        self.T2melt = T2melt
+        nyrs = int(tf - ts)
+        if bp is None:
+            bp = np.zeros(nyrs)
+        if bal is None:
+            bal = np.zeros(nyrs)
+            
+        self.bp = bp
+        self.bal = bal
+    
+    def get_mass_balance(self, x, h_eff, year_idx):
+        """Calculate mass balance directly"""
+        if self.bz is not None:
+            b = (self.b0 + self.bp[year_idx] * self.sigb + 
+                 self.bal[year_idx] + self.bz[h_eff.astype(int)])
+        else:
+            b = (self.b0 + self.bp[year_idx] * self.sigb + 
+                 self.bal[year_idx] + self.bx[x.astype(int)])
+        
+        return b, {}
+    
+    def get_climate_vars(self, year_idx):
+        """Get climate variables for output"""
+        return {}
 
-        # runtime flags
+
+class flowline2d:
+    def __init__(self, config=None, geometry=None, forcing=None, **kwargs):
+        """2d flowline model with modular configuration
+        
+        Parameters
+        ----------
+        config : FlowlineConfig, optional
+            Model configuration parameters
+        geometry : FlowlineGeometry, optional  
+            Glacier geometry setup
+        forcing : MassBalanceForcing, optional
+            Mass balance forcing method
+        **kwargs : dict
+            Additional parameters for backward compatibility
+        """
+        
+        # Handle backward compatibility
+        if config is None or geometry is None or forcing is None:
+            return self._init_legacy(**kwargs)
+        
+        self.config = config
+        self.geometry = geometry
+        self.forcing = forcing
         self.no_error = True
-
-    def run(self, **kwargs):
-        # run the model depending on the mode
         
-        if kwargs:  # change any arguments that were provided in the run call
-            self.__dict__.update(kwargs)
+        # Setup model
+        self._setup_model()
 
-        self.load_profile()  # load glacier geometry
-
-        # call the appropriate run function
-        if self.mode == 'TP':
-            return self._run_TP()
-        elif self.mode == 'b':
-            return self._run_b()
-
-    def _run_TP(self):
-        # output
-        nouts = int((self.nts * self.delt) // 1)
+    def _init_legacy(self, **kwargs):
+        """Legacy initialization for backward compatibility"""
+        # Extract required parameters
+        x_gr = kwargs.pop('x_gr')
+        zb_gr = kwargs.pop('zb_gr') 
+        w_geom = kwargs.pop('w_geom')
+        mode = kwargs.pop('mode', 'TP')
+        
+        # Create config from kwargs
+        config_params = {}
+        for key in ['rho', 'g', 'fd', 'fs', 'n', 'k', 'delx', 'delt', 'ts', 'tf', 
+                   'min_thick', 'deltout', 'dt_plot', 'rt_plot', 'xlim0', 'gamma', 'mu', 'hmb']:
+            if key in kwargs:
+                config_params[key] = kwargs.pop(key)
+        
+        self.config = FlowlineConfig(**config_params)
+        
+        # Create geometry
+        self.geometry = FlowlineGeometry(
+            x_gr, zb_gr, w_geom,
+            x_init=kwargs.get('x_init') or kwargs.get('x_geom'),
+            h_init=kwargs.get('h_init') or kwargs.get('h_geom'),
+            profile=kwargs.get('profile')
+        )
+        
+        # Create forcing based on mode
+        if mode == 'TP':
+            self.forcing = TemperaturePrecipitationForcing(
+                T0=kwargs.get('T0'), P0=kwargs.get('P0'),
+                sigT=kwargs.get('sigT', 1), sigP=kwargs.get('sigP', 1),
+                T=kwargs.get('T'), P=kwargs.get('P'), temp=kwargs.get('temp'),
+                t_stab=kwargs.get('t_stab'), mu=self.config.mu, gamma=self.config.gamma,
+                dpdz=kwargs.get('dpdz'), T2melt=kwargs.get('T2melt'),
+                pdd_Tamp=kwargs.get('pdd_Tamp'), pdd_beta=kwargs.get('pdd_beta'),
+                ts=self.config.ts, tf=self.config.tf
+            )
+        elif mode == 'b':
+            self.forcing = DirectMassBalanceForcing(
+                b0=kwargs.get('b0'), bp=kwargs.get('bp'), bal=kwargs.get('bal'),
+                sigb=kwargs.get('sigb', 1), bz=kwargs.get('bz'), bx=kwargs.get('bx'),
+                ts=self.config.ts, tf=self.config.tf
+            )
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+        
+        self.no_error = True
+        self._setup_model()
+    
+    def _setup_model(self):
+        """Setup model grid, geometry, and output arrays"""
+        # Setup geometry and grid
+        self.geometry.setup_grid(self.config.delx)
+        self.geometry.load_initial_profile()
+        
+        # Copy geometry attributes for easy access
+        self.x = self.geometry.x
+        self.zb = self.geometry.zb
+        self.w = self.geometry.w
+        self.dzbdx = self.geometry.dzbdx
+        self.dwdx = self.geometry.dwdx
+        self.nxs = self.geometry.nxs
+        self.h0 = self.geometry.h0
+        
+        # Calculate number of time steps
+        self.nts = round(np.floor((self.config.tf - self.config.ts) / self.config.delt))
+        
+        # Initialize output arrays
+        self._initialize_output_arrays()
+    
+    def _initialize_output_arrays(self):
+        """Initialize all output arrays"""
+        nouts = int((self.nts * self.config.delt) // self.config.deltout)
+        
+        # Common outputs
         self.edge_idx = np.full(nouts, fill_value=np.nan, dtype="int")
         self.edge = np.full(nouts, fill_value=np.nan, dtype="float")
         self.t = np.full(nouts, fill_value=np.nan, dtype="float")
-        self.T = np.full(nouts, fill_value=np.nan, dtype="float")
         self.gwb = np.full(nouts, fill_value=np.nan, dtype="float")
         self.ela = np.full(nouts, fill_value=np.nan, dtype="float")
         self.area = np.full(nouts, fill_value=np.nan, dtype="float")
         self.h = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
         self.b = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-        self.melt = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
         self.ela_idx = np.full(nouts, fill_value=np.nan, dtype="int")
         self.F = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-        self.P = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-        self.pdd = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
+        
+        # Climate-specific outputs
+        if isinstance(self.forcing, TemperaturePrecipitationForcing):
+            self.T = np.full(nouts, fill_value=np.nan, dtype="float")
+            self.P = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
+            self.melt = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
+            if self.forcing.T2melt == 'pdd':
+                self.pdd = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
 
-        yr = self.ts - 1  # - 1 because we start the time loop by incrementing the year
+    def run(self, **kwargs):
+        """Single entry point for running the model"""
+        # Update config with any runtime overrides
+        if kwargs:
+            config_dict = asdict(self.config)
+            config_dict.update(kwargs)
+            self.config = FlowlineConfig(**config_dict)
+            # Recalculate dependent values
+            self.nts = round(np.floor((self.config.tf - self.config.ts) / self.config.delt))
+            self._initialize_output_arrays()
+        
+        try:
+            return self._run_model()
+        except Exception as e:
+            self.no_error = False
+            raise FlowlineModelError(f"Model run failed: {e}") from e
+
+    def _run_model(self):
+        """Unified model run method"""
+        yr = self.config.ts - 1  # -1 because we increment at start of loop
         idx_out = 0
 
-        if self.rt_plot:
+        if self.config.rt_plot:
             self.fig, self.ax = self._init_plot()
 
-        h = self.h0  # define initial height
+        h = self.h0.copy()  # Initial thickness
+        
         for i in tqdm(
             range(0, self.nts),
-            unit_scale=self.delt,
+            unit_scale=self.config.delt,
             unit="yrs",
             bar_format="{desc}: {percentage:2.0f}%|{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}, {rate_fmt}{postfix}",
             ascii=True,
             ncols=100,
         ):
-            t = self.delt * i  # time in years
+            t = self.config.delt * i  # time in years
 
-            # UPDATE climate every year
+            # Update climate every year
             if t == t // 1:
                 yr = yr + 1
 
-                # effective height
-                # without hmb this has to stay fixed between runs even while the profile changes
-                if self.hmb:
+                # Calculate effective height for mass balance
+                if self.config.hmb:
                     h_eff = self.zb + h
                 else:
                     h_eff = self.zb
 
-                P = (self.P0 + self.Pp[yr - self.ts]) * np.ones(self.x.size)# + self.dpdz[h_eff.astype(int)]
-                T_wk = (
-                    (self.T0 + self.Tp[yr - self.ts]) * np.ones(self.x.size) + self.temp[yr - self.ts] - self.gamma * h_eff
-                )  # add temperature forcing
-                if callable(self.T2melt):
-                    melt = self.T2melt(T_wk)
-                elif self.T2melt == 'pdd':
-                    pdd = calc_pdd(T_wk, self.pdd_Tamp)
-                    melt = np.maximum(0, pdd * self.mu)
-                else:
-                    melt = np.maximum(0, T_wk * self.mu)  # this is apparently faster than clip for numpy 1.17
-                
-                b = P - melt
+                # Get mass balance from forcing
+                b, climate_vars = self.forcing.get_mass_balance(
+                    self.x, h_eff, yr - self.config.ts
+                )
 
-            # loop over space (solve SIA)
-            # this is the entire model, really
+            # Solve shallow ice approximation
             h, edge_idx, F = space_loop(
-                h,
-                b,
-                self.x,
-                self.rho,
-                self.g,
-                self.nxs,
-                self.delx,
-                self.dzbdx,
-                self.fd,
-                self.fs,
-                self.dwdx,
-                self.w,
-                self.delt,
-                self.min_thick,
-                self.n,
-                self.k,
+                h, b, self.x, self.config.rho, self.config.g, self.nxs,
+                self.config.delx, self.dzbdx, self.config.fd, self.config.fs,
+                self.dwdx, self.w, self.config.delt, self.config.min_thick,
+                self.config.n, self.config.k
             )
 
-            if t / self.deltout == np.floor(t / self.deltout):
-                # Save outputs
-                area = np.sum(self.w[:edge_idx]) * self.delx
-                bal = b * self.w * self.delx  # mass added in a given cell units are m^3 yr^-1
-                # bal[edge+1] =
-                self.gwb[idx_out] = bal[
-                    :edge_idx
-                ].sum()  # should add up all the mass up to the edge, and be zero in equilibrium (nearly zero)
+            # Save output at specified intervals
+            if t / self.config.deltout == np.floor(t / self.config.deltout):
+                self._save_output(idx_out, t, h, b, edge_idx, F, climate_vars)
+                idx_out += 1
 
-                self.T[idx_out] = self.T0 + self.Tp[yr - self.ts] + self.temp[yr - self.ts]  # input temperature
-                self.P[idx_out, :] = P
-                self.melt[idx_out, :] = melt
-                self.t[idx_out] = t + self.ts
-                self.edge_idx[idx_out] = edge_idx
-                self.edge[idx_out] = edge_idx * self.delx
-                self.h[idx_out, :] = h
-                self.area[idx_out] = area
-                try:
-                    ela_idx = np.abs(b[:edge_idx]).argmin()
-                except:  # if the ela is above the glacier
-                    ela_idx = 0
-                self.ela_idx[idx_out] = ela_idx
-                self.ela[idx_out] = self.zb[ela_idx] + h[ela_idx]
-                self.b[idx_out, :] = b
-                if self.T2melt == 'pdd':
-                    self.pdd[idx_out, :] = pdd
-                # b_out[idx_out, edge+1:] = np.nan
-
-                self.F[idx_out, :] = F
-                idx_out = idx_out + 1
-
-                if self.rt_plot:
+                if self.config.rt_plot:
                     self._rt_plot(t)
 
-                # -----------------------------------------
-                # end loop over time
-                # -----------------------------------------
-
-        if np.isnan(self.h[-1, 0]):
-            self.no_error = False
-        else:
-            self.no_error = True
-
+        # Check for successful completion
+        self.no_error = not np.isnan(self.h[-1, 0])
         return copy.deepcopy(self)
-
-    def _run_b(self):
-        # output
-        nouts = int((self.nts * self.delt) // 1)
-        self.edge_idx = np.full(nouts, fill_value=np.nan, dtype="int")
-        self.edge = np.full(nouts, fill_value=np.nan, dtype="float")
-        self.t = np.full(nouts, fill_value=np.nan, dtype="float")
-        self.gwb = np.full(nouts, fill_value=np.nan, dtype="float")
-        self.ela = np.full(nouts, fill_value=np.nan, dtype="float")
-        self.area = np.full(nouts, fill_value=np.nan, dtype="float")
-        self.h = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-        self.b = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-        self.melt = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-        self.ela_idx = np.full(nouts, fill_value=np.nan, dtype="int")
-        self.F = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-
-        yr = self.ts - 1  # - 1 because we start the time loop by incrementing the year
-        idx_out = 0
-
-        if self.rt_plot:
-            self.fig, self.ax = self._init_plot()
-
-        h = self.h0  # define initial height
-        for i in tqdm(
-            range(0, self.nts),
-            unit_scale=self.delt,
-            unit="yrs",
-            bar_format="{desc}: {percentage:2.0f}%|{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}, {rate_fmt}{postfix}",
-            ascii=True,
-            ncols=100,
-        ):
-            t = self.delt * i  # time in years
-
-            # UPDATE climate every year
-            if t == t // 1:
-                yr = yr + 1
-
-                # effective height
-                # without hmb this has to stay fixed between runs even while the profile changes
-                if self.hmb:
-                    h_eff = self.zb + h
-                else:
-                    h_eff = self.zb + h[0]
-
-                # set forcing for the year
-                if self.bz is not None:
-                    b = self.b0 + self.bp[yr - self.ts] * self.sigb + self.bal[yr - self.ts] + self.bz[h_eff.astype(int)]
-                else:
-                    b = self.b0 + self.bp[yr - self.ts] * self.sigb + self.bal[yr - self.ts] + self.bx[self.x.astype(int)]
-
-
-            # loop over space (solve SIA)
-            # this is the entire model, really
-            h, edge_idx, F = space_loop(
-                h,
-                b,
-                self.x,
-                self.rho,
-                self.g,
-                self.nxs,
-                self.delx,
-                self.dzbdx,
-                self.fd,
-                self.fs,
-                self.dwdx,
-                self.w,
-                self.delt,
-                self.min_thick,
-                self.n,
-                self.k,
-            )
-
-            # record output
-            if t / self.deltout == np.floor(t / self.deltout):
-                # Save outputs
-                area = np.sum(self.w[:edge_idx]) * self.delx
-                bal = b * self.w * self.delx  # mass added in a given cell units are m^3 yr^-1
-                # bal[edge+1] =
-                self.gwb[idx_out] = bal[
-                    :edge_idx
-                ].sum()  # should add up all the mass up to the edge, and be zero in equilibrium (nearly zero)
-                self.t[idx_out] = t + self.ts
-                self.edge_idx[idx_out] = edge_idx
-                self.edge[idx_out] = edge_idx * self.delx
-                self.h[idx_out, :] = h
-                self.area[idx_out] = area
-                try:
-                    ela_idx = np.abs(b[:edge_idx]).argmin()
-                except:  # if the ela is above the glacier
-                    ela_idx = 0
-                self.ela_idx[idx_out] = ela_idx
-                self.ela[idx_out] = self.zb[ela_idx] + h[ela_idx]
-                self.b[idx_out, :] = b
-                # b_out[idx_out, edge+1:] = np.nan
-
-                self.F[idx_out, :] = F
-                idx_out = idx_out + 1
-
-                if self.rt_plot:
-                    self._rt_plot(t)
-
-                # -----------------------------------------
-                # end loop over time
-                # -----------------------------------------
-
-        if np.isnan(self.h[-1, 0]):
-            self.no_error = False
-        else:
-            self.no_error = True
-
-        return copy.deepcopy(self)
-
-    def load_profile(self):
-        # load/fill in initial values for glacier thickness from previous run or default
-        # by the end of this section there will be values for x0 and h0
-        try:  # if an initial profile was provided
-            h0 = np.array(self.profile.h[-1, :])
-            x0 = np.array(self.profile.x)
-        except:  # initial profile is not flowline2d object
-            try:  # try treating self.profile as file path to flowline2d object
-                with open(self.profile, 'rb') as f:
-                    last_run = dill.load(f)
-                h0 = np.array(last_run.h[-1, :])  # take the final year of the simulation
-                x0 = np.array(last_run.x)
-                logging.info(f"Successfully loaded profile: {self.profile}")
-
-            except Exception as error:  # use default values
-                logging.debug("Exception on profile loading: ", error)
-                logging.info(f"Did not load profile. Using default values for x0 and h0.")
-                x0 = self.x_geom
-                h0 = self.h_geom
-
-        # values for x0 and h0 have been set
-        # interpolate x0 and h0 to model grid
+    
+    def _save_output(self, idx_out, t, h, b, edge_idx, F, climate_vars):
+        """Save model output at current time step"""
+        area = np.sum(self.w[:edge_idx]) * self.config.delx
+        bal = b * self.w * self.config.delx
+        
+        # Common outputs
+        self.t[idx_out] = t + self.config.ts
+        self.edge_idx[idx_out] = edge_idx
+        self.edge[idx_out] = edge_idx * self.config.delx
+        self.h[idx_out, :] = h
+        self.area[idx_out] = area
+        self.gwb[idx_out] = bal[:edge_idx].sum()
+        self.b[idx_out, :] = b
+        self.F[idx_out, :] = F
+        
+        # Calculate ELA
         try:
-            h0 = interp1d(x0, h0, "linear", bounds_error=True)
-            h0 = h0(self.x)
+            ela_idx = np.abs(b[:edge_idx]).argmin()
         except:
-            logging.warning(
-                f"A value in x exceeds x0 for interpolation of h0 to the model grid. Proceeding with extrapolation. x0.max() = {x0.max()}, x.max() = {self.x.max()}"
+            ela_idx = 0
+        self.ela_idx[idx_out] = ela_idx
+        self.ela[idx_out] = self.zb[ela_idx] + h[ela_idx]
+        
+        # Climate-specific outputs
+        if isinstance(self.forcing, TemperaturePrecipitationForcing):
+            climate_out = self.forcing.get_climate_vars(
+                int((t + self.config.ts - self.config.ts))
             )
-            h0 = interp1d(x0, h0, "linear", fill_value="extrapolate")
-            h0 = h0(self.x)
-        self.h0 = h0
-        self.x_geom = x0
-        self.h_geom = h0  # to fix hmb drift
+            if 'T' in climate_out:
+                self.T[idx_out] = climate_out['T']
+            if 'P' in climate_vars:
+                self.P[idx_out, :] = climate_vars['P']
+            if 'melt' in climate_vars:
+                self.melt[idx_out, :] = climate_vars['melt']
+            if 'pdd' in climate_vars and climate_vars['pdd'] is not None:
+                self.pdd[idx_out, :] = climate_vars['pdd']
+
 
     def plot_full(self, xlim0=None, smooth=20):
         """This is a docstring
@@ -869,38 +813,38 @@ class flowline2d:
         return df
 
     def to_xarray(self):
+        """Convert results to xarray Dataset with proper metadata"""
+        # Build data variables dynamically based on what exists
+        data_vars = {
+            'edge_idx': (['time'], self.edge_idx),
+            'edge': (['time'], self.edge),
+            'gwb': (['time'], self.gwb),
+            'b': (['time', 'x'], self.b),
+            'ela': (['time'], self.ela),
+            'h': (['time', 'x'], self.h),
+            'area': (['time'], self.area),
+            'w': (['x'], self.w),
+            'zb': (['x'], self.zb),
+            'F': (['time', 'x'], self.F),
+        }
+        
+        # Add climate-specific variables if they exist
+        if hasattr(self, 'T') and self.T is not None:
+            data_vars['T'] = (['time'], self.T)
+        if hasattr(self, 'P') and self.P is not None:
+            data_vars['P'] = (['time', 'x'], self.P)
+        if hasattr(self, 'melt') and self.melt is not None:
+            data_vars['melt'] = (['time', 'x'], self.melt)
+        if hasattr(self, 'pdd') and self.pdd is not None:
+            data_vars['pdd'] = (['time', 'x'], self.pdd)
+        
         ds = xr.Dataset(
-            data_vars=dict(
-                T=(["time"], self.T),
-                P=(["time"], self.P),
-                edge_idx=(["time"], self.edge_idx),
-                edge=(["time"], self.edge),
-                gwb=(["time"], self.gwb),
-                b=(["time", "x"], self.b),
-                ela=(["time"], self.ela),
-                h=(["time", "x"], self.h),
-                area=(["time"], self.area),
-                w=(["x"], self.w),
-                zb=(["x"], self.zb),
-            ),
-            coords=dict(
-                time=self.t,
-                x=self.x,
-            ),
-            attrs=dict(
-                ts=self.ts,
-                tf=self.tf,
-                nxs=self.nxs,
-                delx=self.delx,
-                sigT=self.sigT,
-                sigP=self.sigP,
-                P0=self.P0,
-                T0=self.T0,
-                # Tref=self.Tref,
-                # Pref=self.Pref,
-                nrun=self.nrun,
-                ref_period=self.ref_period,
-            ),
+            data_vars=data_vars,
+            coords={
+                'time': self.t,
+                'x': self.x,
+            },
+            attrs=asdict(self.config)
         )
         return ds
 
