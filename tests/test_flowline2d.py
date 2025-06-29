@@ -360,7 +360,7 @@ class TestMassBalanceResponses:
             delx=50,
             delt=0.0125/4,  # Slightly larger time step for faster testing
             ts=0,
-            tf=200,
+            tf=1000,
             deltout=1,
             gamma=6.5e-3,
             mu=0.65
@@ -452,7 +452,7 @@ class TestMassBalanceResponses:
         
         # Test positive step change
         bp_pos = np.zeros(int(test_config.tf - test_config.ts))
-        bp_pos[50:] = 0.5  # +0.5 m/yr after year 50
+        bp_pos[500:] = 0.5  # +0.5 m/yr after year 500
         
         forcing_pos = DirectMassBalanceForcing(
             b0=0, bp=bp_pos, ts=test_config.ts, tf=test_config.tf
@@ -463,7 +463,7 @@ class TestMassBalanceResponses:
         
         # Test negative step change
         bp_neg = np.zeros(int(test_config.tf - test_config.ts))
-        bp_neg[50:] = -0.5  # -0.5 m/yr after year 50
+        bp_neg[500:] = -0.5  # -0.5 m/yr after year 500
         
         forcing_neg = DirectMassBalanceForcing(
             b0=0, bp=bp_neg, ts=test_config.ts, tf=test_config.tf
@@ -482,7 +482,7 @@ class TestMassBalanceResponses:
                                        'step_change_symmetry.png')
         
         # Calculate length changes
-        initial_length = result_pos.edge[49]  # Length just before step change
+        initial_length = result_pos.edge[499]  # Length just before step change
         final_length_pos = result_pos.edge[-1]
         final_length_neg = result_neg.edge[-1]
         
