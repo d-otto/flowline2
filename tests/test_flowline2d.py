@@ -437,7 +437,7 @@ class TestMassBalanceResponses:
                 return dill.load(f)
 
         # Config for a long spin-up run
-        ss_config = FlowlineConfig(ts=0, tf=1500, deltout=10, delx=50)
+        ss_config = FlowlineConfig(ts=0, tf=1000, delx=50)
         
         basic_params = {
             'length': 10000,
@@ -476,7 +476,7 @@ class TestMassBalanceResponses:
         
         # Test positive step change
         bp_pos = np.zeros(int(test_config.tf - test_config.ts))
-        bp_pos[500:] = 0.5  # +0.5 m/yr after year 500
+        bp_pos[100:] = 0.1  # +0.1 m/yr starting year 100
         
         forcing_pos = DirectMassBalanceForcing(
             b0=0, bp=bp_pos
@@ -489,7 +489,7 @@ class TestMassBalanceResponses:
         
         # Test negative step change
         bp_neg = np.zeros(int(test_config.tf - test_config.ts))
-        bp_neg[500:] = -0.5  # -0.5 m/yr after year 500
+        bp_neg[100:] = -0.1  # -0.1 m/yr starting year 100
         
         forcing_neg = DirectMassBalanceForcing(
             b0=0, bp=bp_neg
@@ -510,7 +510,7 @@ class TestMassBalanceResponses:
                                        'step_change_symmetry.png')
         
         # Calculate length changes
-        initial_length = result_pos.edge[499]  # Length just before step change
+        initial_length = result_pos.edge[99]  # Length just before step change
         final_length_pos = result_pos.edge[-1]
         final_length_neg = result_neg.edge[-1]
         
@@ -694,9 +694,9 @@ class TestNumericalSensitivity:
     def test_grid_resolution_sensitivity(self):
         """Test that results are consistent across different grid resolutions"""
         # Base configuration
-        config_base = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=100, deltout=5)
-        config_fine = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=100, deltout=5)
-        config_coarse = FlowlineConfig(delx=100, delt=0.0125/8, ts=0, tf=100, deltout=5)
+        config_base = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=100)
+        config_fine = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=100)
+        config_coarse = FlowlineConfig(delx=100, delt=0.0125/8, ts=0, tf=100)
         
         # Create identical geometry and forcing
         basic_params = {
@@ -821,7 +821,7 @@ class TestBoundaryConditions:
     
     def test_glacier_head_boundary(self):
         """Test behavior at glacier head (upstream boundary)"""
-        config = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=50, deltout=1)
+        config = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=50)
         
         # Create geometry with very high mass balance at head
         basic_params = {
@@ -847,7 +847,7 @@ class TestBoundaryConditions:
     
     def test_glacier_terminus_boundary(self):
         """Test behavior at glacier terminus"""
-        config = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=50, deltout=1)
+        config = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=50)
         
         basic_params = {
             'length': 5000,
