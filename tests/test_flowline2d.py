@@ -262,8 +262,8 @@ class TestSteadyStateInitialization:
         
         # Plot 3: Mass balance profile
         ax = axes[1, 0]
-        if hasattr(result, 'b') and result.b is not None:
-            ax.plot(result.x[:edge_idx]/1000, result.b[-1, :edge_idx], 'r-', linewidth=2)
+        if hasattr(result, 'b_profile') and result.b_profile is not None:
+            ax.plot(result.x[:edge_idx]/1000, result.b_profile[-1, :edge_idx], 'r-', linewidth=2)
             ax.axhline(y=0, color='k', linestyle='--', alpha=0.5)
             ax.set_xlabel('Distance (km)')
             ax.set_ylabel('Mass Balance (m/yr)')
@@ -413,8 +413,8 @@ class TestMassBalanceResponses:
         # Plot 4: Mass balance forcing (if available)
         ax = axes[1, 1]
         for i, (label, result) in enumerate(results_dict.items()):
-            if hasattr(result, 'gwb'):
-                ax.plot(result.t, result.gwb, color=colors[i % len(colors)], 
+            if hasattr(result, 'total_mass_balance'):
+                ax.plot(result.t, result.total_mass_balance, color=colors[i % len(colors)], 
                        linewidth=2, label=label)
         ax.set_xlabel('Time (years)')
         ax.set_ylabel('Glacier-wide Balance (m³/yr)')
@@ -918,7 +918,7 @@ class TestMassConservation:
                 dvol_dt = (vol_new - vol_old) / dt[i-1]
                 
                 # Mass balance input
-                mb_input = result.gwb[i]
+                mb_input = result.total_mass_balance[i]
                 
                 # Should be approximately equal (within numerical precision)
                 if abs(mb_input) > 1e-6:  # Avoid division by very small numbers
@@ -958,10 +958,10 @@ class TestMassConservation:
         # Plot 2: Mass balance vs volume change rate
         ax = axes[0, 1]
         if len(dvol_dt) > 0:
-            ax.scatter(result.gwb[1:], dvol_dt, alpha=0.7, s=20)
+            ax.scatter(result.total_mass_balance[1:], dvol_dt, alpha=0.7, s=20)
             # Perfect conservation line
-            min_val = min(min(result.gwb[1:]), min(dvol_dt))
-            max_val = max(max(result.gwb[1:]), max(dvol_dt))
+            min_val = min(min(result.total_mass_balance[1:]), min(dvol_dt))
+            max_val = max(max(result.total_mass_balance[1:]), max(dvol_dt))
             ax.plot([min_val, max_val], [min_val, max_val], 'r--', 
                    linewidth=2, label='Perfect Conservation')
             ax.set_xlabel('Mass Balance Input (m³/yr)')
@@ -975,7 +975,7 @@ class TestMassConservation:
         if len(dvol_dt) > 0:
             conservation_error = []
             for i in range(len(dvol_dt)):
-                mb_input = result.gwb[i+1]
+                mb_input = result.total_mass_balance[i+1]
                 if abs(mb_input) > 1e-6:
                     error = abs(dvol_dt[i] - mb_input) / abs(mb_input) * 100
                     conservation_error.append(error)
@@ -1043,7 +1043,7 @@ class TestOutputFormats:
         assert isinstance(df, pd.DataFrame)
         assert len(df) == len(sample_result.t)
         assert 'area' in df.columns
-        assert 'bal' in df.columns
+        assert 'total_mass_balance' in df.columns
         assert 'edge' in df.columns
         assert 'ela' in df.columns
         
@@ -1064,7 +1064,7 @@ class TestOutputFormats:
         
         # Check key variables
         assert 'h' in ds.data_vars
-        assert 'b' in ds.data_vars
+        assert 'b_profile' in ds.data_vars
         assert 'edge' in ds.data_vars
         assert 'area' in ds.data_vars
         
@@ -1189,12 +1189,12 @@ class TestFeatures:
             if edge_idx > 0:
                 ax.plot(result.x[:edge_idx]/1000, result.melt[-1, :edge_idx], 'orange', 
                        linewidth=2, label='Melt')
-                if hasattr(result, 'P') and result.P is not None:
-                    ax.plot(result.x[:edge_idx]/1000, result.P[-1, :edge_idx], 'blue', 
-                           linewidth=2, label='Precipitation')
+                if hasattr(result, 'accumulation') and result.accumulation is not None:
+                    ax.plot(result.x[:edge_idx]/1000, result.accumulation[-1, :edge_idx], 'blue', 
+                           linewidth=2, label='Accumulation')
                 ax.set_xlabel('Distance (km)')
                 ax.set_ylabel('Rate (m/yr)')
-                ax.set_title('Final Melt and Precipitation')
+                ax.set_title('Final Melt and Accumulation')
                 ax.legend()
                 ax.grid(True, alpha=0.3)
         

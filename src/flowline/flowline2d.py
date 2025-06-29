@@ -237,7 +237,7 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
     
     def get_mass_balance(self, x, h_eff, year_idx):
         """Calculate mass balance from temperature and precipitation"""
-        P = (self.P0 + self.Pp[year_idx]) * np.ones(x.size)
+        accumulation = (self.P0 + self.Pp[year_idx]) * np.ones(x.size)
         T_wk = ((self.T0 + self.Tp[year_idx]) * np.ones(x.size) + 
                 self.temp[year_idx] - self.gamma * h_eff)
         
@@ -250,7 +250,7 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
         else:
             melt = np.maximum(0, T_wk * self.mu)
         
-        return P - melt, {'P': P, 'melt': melt, 'T': T_wk, 'pdd': pdd}
+        return accumulation - melt, {'accumulation': accumulation, 'melt': melt, 'T': T_wk, 'pdd': pdd}
     
     def get_climate_vars(self, year_idx):
         """Get climate variables for output"""
@@ -312,16 +312,21 @@ class DirectMassBalanceForcing(MassBalanceForcing):
             b += self.dbdx[x_indices]
         
         # Add temporal anomaly
+        bp_val = 0.0
         if self.bp is not None:
             if np.isscalar(self.bp):
                 # Constant anomaly
-                b += self.bp
+                bp_val = self.bp
             else:
                 # Time series anomaly - clip year_idx to valid range
                 year_idx_clipped = np.clip(year_idx, 0, len(self.bp) - 1)
-                b += self.bp[year_idx_clipped]
+                bp_val = self.bp[year_idx_clipped]
+            b += bp_val
+
+        accumulation = np.maximum(0, b)
+        melt = np.maximum(0, -b)
         
-        return b, {}
+        return b, {'b_anomaly': bp_val, 'accumulation': accumulation, 'melt': melt}
     
     def get_climate_vars(self, year_idx):
         """Get climate variables for output"""
@@ -467,19 +472,20 @@ class flowline2d:
         self.edge_idx = np.full(nouts, fill_value=np.nan, dtype="int")
         self.edge = np.full(nouts, fill_value=np.nan, dtype="float")
         self.t = np.full(nouts, fill_value=np.nan, dtype="float")
-        self.gwb = np.full(nouts, fill_value=np.nan, dtype="float")
+        self.total_mass_balance = np.full(nouts, fill_value=np.nan, dtype="float")
         self.ela = np.full(nouts, fill_value=np.nan, dtype="float")
         self.area = np.full(nouts, fill_value=np.nan, dtype="float")
         self.h = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-        self.b = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
+        self.b_profile = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
+        self.b_anomaly = np.full(nouts, fill_value=np.nan, dtype="float")
+        self.accumulation = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
+        self.melt = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
         self.ela_idx = np.full(nouts, fill_value=np.nan, dtype="int")
         self.F = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
         
         # Climate-specific outputs
         if isinstance(self.forcing, TemperaturePrecipitationForcing):
             self.T = np.full(nouts, fill_value=np.nan, dtype="float")
-            self.P = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-            self.melt = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
             if hasattr(self.forcing, 'T2melt') and self.forcing.T2melt == 'pdd':
                 self.pdd = np.full((nouts, self.nxs), fill_value=0.0, dtype="float")
 
@@ -571,7 +577,7 @@ class flowline2d:
     def _save_output(self, idx_out, t, h, b, edge_idx, F, climate_vars):
         """Save model output at current time step"""
         area = np.sum(self.w[:edge_idx]) * self.config.delx
-        bal = b * self.w * self.config.delx
+        mass_balance_flux = b * self.w * self.config.delx
         
         # Common outputs
         self.t[idx_out] = t + self.config.ts
@@ -579,8 +585,8 @@ class flowline2d:
         self.edge[idx_out] = edge_idx * self.config.delx
         self.h[idx_out, :] = h
         self.area[idx_out] = area
-        self.gwb[idx_out] = bal[:edge_idx].sum()
-        self.b[idx_out, :] = b
+        self.total_mass_balance[idx_out] = mass_balance_flux[:edge_idx].sum()
+        self.b_profile[idx_out, :] = b
         self.F[idx_out, :] = F
         
         # Calculate ELA
@@ -591,6 +597,13 @@ class flowline2d:
         self.ela_idx[idx_out] = ela_idx
         self.ela[idx_out] = self.zb[ela_idx] + h[ela_idx]
         
+        # Save detailed mass balance components from climate_vars
+        self.b_anomaly[idx_out] = climate_vars.get('b_anomaly', np.nan)
+        if 'accumulation' in climate_vars:
+            self.accumulation[idx_out, :] = climate_vars['accumulation']
+        if 'melt' in climate_vars:
+            self.melt[idx_out, :] = climate_vars['melt']
+        
         # Climate-specific outputs
         if isinstance(self.forcing, TemperaturePrecipitationForcing):
             climate_out = self.forcing.get_climate_vars(
@@ -598,10 +611,6 @@ class flowline2d:
             )
             if 'T' in climate_out:
                 self.T[idx_out] = climate_out['T']
-            if 'P' in climate_vars:
-                self.P[idx_out, :] = climate_vars['P']
-            if 'melt' in climate_vars:
-                self.melt[idx_out, :] = climate_vars['melt']
             if hasattr(self, 'pdd') and 'pdd' in climate_vars and climate_vars['pdd'] is not None:
                 # Ensure PDD values are non-negative and handle NaN
                 pdd_values = climate_vars['pdd']
@@ -619,7 +628,7 @@ class flowline2d:
     def to_pandas(self):
         d = dict(
             area=self.area,
-            bal=self.gwb,
+            total_mass_balance=self.total_mass_balance,
             edge=self.edge_idx,
             edge_m=self.edge,
             ela=self.ela,
@@ -638,8 +647,11 @@ class flowline2d:
         data_vars = {
             'edge_idx': (['time'], self.edge_idx),
             'edge': (['time'], self.edge),
-            'gwb': (['time'], self.gwb),
-            'b': (['time', 'x'], self.b),
+            'total_mass_balance': (['time'], self.total_mass_balance),
+            'b_profile': (['time', 'x'], self.b_profile),
+            'b_anomaly': (['time'], self.b_anomaly),
+            'accumulation': (['time', 'x'], self.accumulation),
+            'melt': (['time', 'x'], self.melt),
             'ela': (['time'], self.ela),
             'h': (['time', 'x'], self.h),
             'area': (['time'], self.area),
@@ -651,10 +663,6 @@ class flowline2d:
         # Add climate-specific variables if they exist
         if hasattr(self, 'T') and self.T is not None:
             data_vars['T'] = (['time'], self.T)
-        if hasattr(self, 'P') and self.P is not None:
-            data_vars['P'] = (['time', 'x'], self.P)
-        if hasattr(self, 'melt') and self.melt is not None:
-            data_vars['melt'] = (['time', 'x'], self.melt)
         if hasattr(self, 'pdd') and self.pdd is not None:
             data_vars['pdd'] = (['time', 'x'], self.pdd)
         
@@ -688,7 +696,7 @@ class flowline2d:
 
         diag = pd.DataFrame(dtype=float, columns=['mean', 'std', 'mean_025', 'mean_975', 'std_025', 'std_975'])
         df = len(res.edge)
-        b = res.gwb / res.area
+        b = res.total_mass_balance / res.area
         diag.loc['b', 'mean'] = b[tslice].mean()
         diag.loc['b', 'std'] = b[tslice].std()
         diag.loc['b', 'mean_025'], diag.loc['b', 'mean_975'] = sci.stats.t.interval(
@@ -698,7 +706,7 @@ class flowline2d:
         diag.loc['b', 'std_025'] = diag.loc['b', 'std_975'] = np.nan
         try:
             diag.loc['T', 'std'] = res.T[tslice].mean(axis=1).std()
-            diag.loc['P', 'std'] = res.P[tslice].mean(axis=1).std()
+            diag.loc['accumulation', 'std'] = res.accumulation[tslice].mean(axis=1).std()
         except:
             pass
         diag.loc['L', 'mean'] = res.edge[tslice].mean()
@@ -723,8 +731,8 @@ class flowline2d:
         diag.loc['ELA', 'mean_025'], diag.loc['ELA', 'mean_975'] = sci.stats.t.interval(
             0.95, df, loc=diag.loc['ELA', 'mean'], scale=diag.loc['ELA', 'std']
         )
-        babl = np.array([res.b[i, j[0] : j[1]].mean() for i, j in enumerate(zip(res.ela_idx[tslice], res.edge_idx[tslice]))])
-        bacc = np.array([res.b[i, :j].mean() for i, j in enumerate(res.ela_idx[tslice])])
+        babl = np.array([res.b_profile[i, j[0] : j[1]].mean() for i, j in enumerate(zip(res.ela_idx[tslice], res.edge_idx[tslice]))])
+        bacc = np.array([res.b_profile[i, :j].mean() for i, j in enumerate(res.ela_idx[tslice])])
         diag.loc['babl', 'mean'] = np.nanmean(babl)
         diag.loc['bacc', 'mean'] = np.nanmean(bacc)
         diag.loc['babl', 'std'] = np.nanstd(babl)
@@ -763,14 +771,14 @@ class flowline2d:
 
     def calc_tau(self):
         H = np.array([self.h[i, (self.ela_idx[i]) : (self.edge_idx[i])].mean() for i in range(len(self.ela_idx))])
-        bt = np.array([self.b[i, (self.ela_idx[i] - 10) : (self.edge_idx[i])].mean() for i in range(len(self.ela_idx))])
+        bt = np.array([self.b_profile[i, (self.ela_idx[i] - 10) : (self.edge_idx[i])].mean() for i in range(len(self.ela_idx))])
         tau = -H / bt
         return tau, H, bt
 
     def calc_tau2(self, t_idx):
         return (
             -self.h[np.arange(self.h.shape[0]), self.edge_idx - t_idx]
-            / self.b[np.arange(self.b.shape[0]), self.edge_idx - t_idx]
+            / self.b_profile[np.arange(self.b_profile.shape[0]), self.edge_idx - t_idx]
         )
 
     def calc_tau4(self, mu=None, gamma=None):
@@ -831,12 +839,13 @@ class flowline2d:
         tau = out[0][0]
         return tau
 
-    def calc_Leq(self):
-        self.Leq = self.b.mean(axis=1) * self.edge[0] / self.b[np.arange(self.b.shape[0]), self.edge_idx - 30]
-        return self.Leq
+    @property
+    def Leq(self):
+        """Equilibrium length"""
+        return self.b_profile.mean(axis=1) * self.edge[0] / self.b_profile[np.arange(self.b_profile.shape[0]), self.edge_idx - 30]
 
     def calc_return(self, L0=0):
-        Leq = self.calc_Leq()
+        Leq = self.Leq
         self.dLeq = Leq - self.edge
         excursions = self.dLeq > L0  # return time
         R = np.diff(np.where(np.concatenate(([excursions[0]], excursions[:-1] != excursions[1:], [True])))[0])[
@@ -850,7 +859,9 @@ class flowline2d:
         sigdLeq = self.dLeq.std()
         return R / (2 * np.pi * np.exp(0.5 * L0 / sigdLeq))
 
-    def calc_tau_from_dLdt(self):
+    @property
+    def tau_from_dLdt(self):
+        """Response time from dL/dt"""
         sigdL = np.gradient(self.edge).std()
         sigL = self.edge.std()
         return sigL / sigdL
