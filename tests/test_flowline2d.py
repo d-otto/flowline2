@@ -214,7 +214,7 @@ class TestMassBalanceForcing:
         
         # Mass balance should decrease with elevation (more negative at low elevation)
         assert b[0] > b[-1]  # Higher elevation should have higher mass balance
-        assert 'P' in climate_vars
+        assert 'accumulation' in climate_vars
         assert 'melt' in climate_vars
         assert 'T' in climate_vars
 
@@ -475,7 +475,7 @@ class TestMassBalanceResponses:
         ss_result = self.get_steady_state_setup('uniform')
         
         # Test positive step change
-        bp_pos = np.zeros(int(test_config.tf - test_config.ts))
+        bp_pos = np.zeros(int(test_config.tf - test_config.ts)+1)
         bp_pos[100:] = 0.1  # +0.1 m/yr starting year 100
         
         forcing_pos = DirectMassBalanceForcing(
@@ -488,7 +488,7 @@ class TestMassBalanceResponses:
         result_pos = model_pos.run()
         
         # Test negative step change
-        bp_neg = np.zeros(int(test_config.tf - test_config.ts))
+        bp_neg = np.zeros(int(test_config.tf - test_config.ts)+1)
         bp_neg[100:] = -0.1  # -0.1 m/yr starting year 100
         
         forcing_neg = DirectMassBalanceForcing(

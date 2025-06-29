@@ -79,7 +79,7 @@ class FlowlineConfig:
     # Climate parameters
     gamma: float = 6.5e-3      # Temperature lapse rate degC/km
     mu: float = 0.65           # Melt rate m/yr/degC
-    hmb: bool = True           # Height mass balance feedback
+    hmb: bool = False           # Height mass balance feedback
     
     def __post_init__(self):
         # Convert deformation parameters from seconds to years
@@ -301,15 +301,12 @@ class DirectMassBalanceForcing(MassBalanceForcing):
         
         # Add elevation-dependent component
         if self.dbdz is not None:
-            # Clip elevation indices to valid range
-            h_indices = np.clip(h_eff.astype(int), 0, len(self.dbdz) - 1)
-            b += self.dbdz[h_indices]
+            b += self.dbdz[h_eff.astype(int)]
         
         # Add distance-dependent component  
         if self.dbdx is not None:
             # Clip distance indices to valid range
-            x_indices = np.clip(x.astype(int), 0, len(self.dbdx) - 1)
-            b += self.dbdx[x_indices]
+            b += self.dbdx[x.astype(int)]
         
         # Add temporal anomaly
         bp_val = 0.0
@@ -318,15 +315,11 @@ class DirectMassBalanceForcing(MassBalanceForcing):
                 # Constant anomaly
                 bp_val = self.bp
             else:
-                # Time series anomaly - clip year_idx to valid range
-                year_idx_clipped = np.clip(year_idx, 0, len(self.bp) - 1)
-                bp_val = self.bp[year_idx_clipped]
+                # Time series anomaly
+                bp_val = self.bp[year_idx]
             b += bp_val
-
-        accumulation = np.maximum(0, b)
-        melt = np.maximum(0, -b)
         
-        return b, {'b_anomaly': bp_val, 'accumulation': accumulation, 'melt': melt}
+        return b, {'b_anomaly': bp_val, 'b': b}
     
     def get_climate_vars(self, year_idx):
         """Get climate variables for output"""
@@ -511,9 +504,6 @@ class flowline2d:
         yr = self.config.ts - 1  # -1 because we increment at start of loop
         idx_out = 0
 
-        if self.config.rt_plot:
-            self.fig, self.ax = self._init_plot()
-
         h = self.h0.copy()  # Initial thickness
         
         for i in tqdm(
@@ -524,11 +514,11 @@ class flowline2d:
             ascii=True,
             ncols=100,
         ):
-            t = self.config.delt * i  # time in years
+            t = self.config.delt * i  # time in fractional years
 
             # Update climate every year
             if t == t // 1:
-                yr = yr + 1
+                yr = yr + 1  # increment integer year on the initial loop to = ts
 
                 # Calculate effective height for mass balance
                 if self.config.hmb:
@@ -538,7 +528,7 @@ class flowline2d:
 
                 # Get mass balance from forcing
                 b, climate_vars = self.forcing.get_mass_balance(
-                    self.x, h_eff, yr - self.config.ts
+                    self.x, h_eff, yr - self.config.ts  # year_idx = 0 for initial loop
                 )
 
             # Solve shallow ice approximation
@@ -562,13 +552,9 @@ class flowline2d:
                 )
                 raise NumericalInstabilityError(error_msg)
 
-            # Save output at specified intervals
-            if t / self.config.deltout == np.floor(t / self.config.deltout):
-                self._save_output(idx_out, t, h, b, edge_idx, F, climate_vars)
-                idx_out += 1
-
-                if self.config.rt_plot:
-                    self._rt_plot(t)
+            # Save output
+            self._save_output(idx_out, t, h, b, edge_idx, F, climate_vars)
+            idx_out += 1
 
         # Check for successful completion
         self.no_error = not np.isnan(self.h[-1, 0])
@@ -1037,8 +1023,7 @@ def calc_b(z, P0, T0, gamma, mu, Tamp, days=365, return_pdd=False):
         return mass_balance
     
 
-def fit_bprofile(bz, ba, z, P, T, gamma, mu, Tamp):
-
+def fit_bprofile(b, bz, ba, z, P, T, gamma, mu, Tamp):
     out = sci.optimize.curve_fit(
         b,
         bz,
