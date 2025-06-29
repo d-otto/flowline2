@@ -225,6 +225,7 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
         T_wk = ((self.T0 + self.Tp[year_idx]) * np.ones(x.size) + 
                 self.temp[year_idx] - self.gamma * h_eff)
         
+        pdd = None
         if callable(self.T2melt):
             melt = self.T2melt(T_wk)
         elif self.T2melt == 'pdd':
@@ -233,7 +234,7 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
         else:
             melt = np.maximum(0, T_wk * self.mu)
         
-        return P - melt, {'P': P, 'melt': melt, 'T': T_wk, 'pdd': pdd if self.T2melt == 'pdd' else None}
+        return P - melt, {'P': P, 'melt': melt, 'T': T_wk, 'pdd': pdd}
     
     def get_climate_vars(self, year_idx):
         """Get climate variables for output"""
@@ -265,9 +266,13 @@ class DirectMassBalanceForcing(MassBalanceForcing):
         if self.bz is not None:
             b = (self.b0 + self.bp[year_idx] * self.sigb + 
                  self.bal[year_idx] + self.bz[h_eff.astype(int)])
-        else:
+        elif self.bx is not None:
             b = (self.b0 + self.bp[year_idx] * self.sigb + 
                  self.bal[year_idx] + self.bx[x.astype(int)])
+        else:
+            # Simple case: just base mass balance plus perturbations
+            b = (self.b0 + self.bp[year_idx] * self.sigb + 
+                 self.bal[year_idx]) * np.ones_like(x)
         
         return b, {}
     
@@ -394,7 +399,7 @@ class flowline2d:
             self.T = np.full(nouts, fill_value=np.nan, dtype="float")
             self.P = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
             self.melt = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
-            if self.forcing.T2melt == 'pdd':
+            if hasattr(self.forcing, 'T2melt') and self.forcing.T2melt == 'pdd':
                 self.pdd = np.full((nouts, self.nxs), fill_value=np.nan, dtype="float")
 
     def run(self, **kwargs):
@@ -503,7 +508,7 @@ class flowline2d:
                 self.P[idx_out, :] = climate_vars['P']
             if 'melt' in climate_vars:
                 self.melt[idx_out, :] = climate_vars['melt']
-            if 'pdd' in climate_vars and climate_vars['pdd'] is not None:
+            if hasattr(self, 'pdd') and 'pdd' in climate_vars and climate_vars['pdd'] is not None:
                 self.pdd[idx_out, :] = climate_vars['pdd']
 
 
@@ -697,21 +702,22 @@ class flowline2d:
         )
         
         
-        if self.mode == 'b':
-            ax[0,1].plot(
-                self.t,
-                sm(self.bp),
-                c="blue",
-                lw=1,
-                label=f"b_anom {smooth_label}",
-            )
-        else:
+        # Check if we have temperature or mass balance forcing
+        if hasattr(self, 'T') and self.T is not None:
             ax[0,1].plot(
                 self.t,
                 sm(self.T),
                 c="blue",
                 lw=1,
                 label=f"T {smooth_label}",
+            )
+        elif hasattr(self.forcing, 'bp'):
+            ax[0,1].plot(
+                self.t,
+                sm(self.forcing.bp[:len(self.t)]),
+                c="blue",
+                lw=1,
+                label=f"b_anom {smooth_label}",
             )
         #ax01b = ax[0, 1].twinx()
         ax[0,1].plot(self.t, sm(self.gwb / self.area), label=f'Sp. MB {smooth_label}', c='black', lw=1)
