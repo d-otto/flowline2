@@ -952,20 +952,20 @@ class TestMassConservation:
         
         for i in range(1, len(result.t)):
             # Volume change
-            edge_idx = result.edge_idx[i]
-            if edge_idx > 0:
-                vol_old = np.sum(result.h[i-1, :edge_idx] * result.w[:edge_idx] * config.delx)
-                vol_new = np.sum(result.h[i, :edge_idx] * result.w[:edge_idx] * config.delx)
-                dvol_dt = (vol_new - vol_old) / dt[i-1]
-                
-                # Mass balance input
-                mb_input = result.total_mass_balance[i]
-                
-                # Should be approximately equal (within numerical precision)
-                if abs(mb_input) > 1e-6:  # Avoid division by very small numbers
-                    relative_error = abs(dvol_dt - mb_input) / abs(mb_input)
-                    assert relative_error < 0.01, \
-                        f"Mass conservation error at t={result.t[i]:.1f}: {relative_error:.4f}"
+            edge_idx_old = result.edge_idx[i-1]
+            edge_idx_new = result.edge_idx[i]
+            vol_old = np.sum(result.h[i-1, :edge_idx_old] * result.w[:edge_idx_old] * config.delx)
+            vol_new = np.sum(result.h[i, :edge_idx_new] * result.w[:edge_idx_new] * config.delx)
+            dvol_dt = (vol_new - vol_old) / dt[i-1]
+            
+            # Mass balance input
+            mb_input = result.total_mass_balance[i]
+            
+            # Should be approximately equal (within numerical precision)
+            if abs(mb_input) > 1e-6:  # Avoid division by very small numbers
+                relative_error = abs(dvol_dt - mb_input) / abs(mb_input)
+                assert relative_error < 0.01, \
+                    f"Mass conservation error at t={result.t[i]:.1f}: {relative_error:.4f}"
     
     def _create_mass_conservation_qc_figure(self, result, title, filename):
         """Create QC figure for mass conservation analysis"""
