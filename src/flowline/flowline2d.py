@@ -518,7 +518,11 @@ class flowline2d:
             if 'melt' in climate_vars:
                 self.melt[idx_out, :] = climate_vars['melt']
             if hasattr(self, 'pdd') and 'pdd' in climate_vars and climate_vars['pdd'] is not None:
-                self.pdd[idx_out, :] = climate_vars['pdd']
+                # Ensure PDD values are non-negative and handle NaN
+                pdd_values = climate_vars['pdd']
+                pdd_values = np.where(np.isnan(pdd_values), 0.0, pdd_values)
+                pdd_values = np.maximum(pdd_values, 0.0)
+                self.pdd[idx_out, :] = pdd_values
 
 
     def to_pickle(self, fp):
