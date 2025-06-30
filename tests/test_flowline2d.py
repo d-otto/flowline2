@@ -48,8 +48,8 @@ class TestGeometry:
     @pytest.fixture
     def basic_geometry_params(self):
         """Standard geometry parameters for testing"""
-        length = 10000  # 10 km
-        x_gr = np.linspace(0, length, 21)  # 21 points for smooth interpolation
+        length = 20000  # 20 km
+        x_gr = np.linspace(0, length, 41)  # 41 points for smooth interpolation
         return {
             'length': length,
             'x_gr': x_gr,
@@ -227,7 +227,7 @@ class TestSteadyStateInitialization:
         """Standard configuration for initialization runs"""
         return FlowlineConfig(
             delx=25,
-            delt=0.0125/16, 
+            delt=0.0125/64, 
             ts=0,
             tf=1000,  # Long enough to reach steady state
             gamma=6.5e-3,
@@ -295,8 +295,8 @@ class TestSteadyStateInitialization:
         """Create steady-state ice thickness profile for testing"""
         # Create geometry
         basic_params = {
-            'length': 5000,
-            'x_gr': np.linspace(0, 10000, 21),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 1000,
             'width': 1000
         }
@@ -432,17 +432,16 @@ class TestMassBalanceResponses:
         cache_dir.mkdir(exist_ok=True)
         cache_path = cache_dir / f"steady_state_{bed_type}.pkl"
 
-        # For test robustness, always regenerate the cache to avoid using stale data from
-        # previous test runs with different parameters.
         if cache_path.exists():
-            cache_path.unlink()
+            with open(cache_path, 'rb') as f:
+                return dill.load(f)
 
         # Config for a long spin-up run
-        ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/16)
+        ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/64)
         
         basic_params = {
-            'length': 5000,
-            'x_gr': np.linspace(0, 10000, 21),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 1000,
             'width': 1000
         }
@@ -455,7 +454,7 @@ class TestMassBalanceResponses:
             x_gr, zb_gr, w_geom = TestGeometry().create_convex_profile(basic_params)
         
         # Create reasonable initial thickness to start spinup
-        h_init = np.maximum(0, 200 * (1 - x_gr / 4000))
+        h_init = np.maximum(0, 200 * (1 - x_gr / 8000))
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
 
         # Simple forcing to get to a steady state
@@ -768,20 +767,20 @@ class TestNumericalSensitivity:
         # Base configuration
         # Timestep delt must be scaled with delx to maintain stability.
         # A common scaling for this type of problem is delt ~ delx^2.
-        base_delt = 0.0125 / 16
+        base_delt = 0.0125 / 64
         config_base = FlowlineConfig(delx=25, delt=base_delt, ts=0, tf=100)
         config_fine = FlowlineConfig(delx=12.5, delt=base_delt/4, ts=0, tf=100)
         config_coarse = FlowlineConfig(delx=50, delt=base_delt*4, ts=0, tf=100)
         
         # Create identical geometry and forcing
         basic_params = {
-            'length': 5000,
-            'x_gr': np.linspace(0, 10000, 21),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 1000,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 200 * (1 - x_gr / 4000))
+        h_init = np.maximum(0, 200 * (1 - x_gr / 8000))
         
         forcing_params = {
             'T0': 15, 'P0': 2, 'gamma': 6.5e-3, 'mu': 0.65,
@@ -970,13 +969,13 @@ class TestBoundaryConditions:
         
         # Create geometry with very high mass balance at head
         basic_params = {
-            'length': 5000,  # Shorter glacier for focused test
-            'x_gr': np.linspace(0, 10000, 11),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 500,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
         
         # High accumulation at head
         forcing = DirectMassBalanceForcing(b0=0.5)  # +5 m/yr everywhere
@@ -995,13 +994,13 @@ class TestBoundaryConditions:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=50)
         
         basic_params = {
-            'length': 5000,
-            'x_gr': np.linspace(0, 10000, 11),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 1000,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
         
         # Strong ablation to test terminus retreat
         forcing = DirectMassBalanceForcing(b0=-1)  # -2 m/yr everywhere
@@ -1031,13 +1030,13 @@ class TestMassConservation:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=10000, deltout=1)
         
         basic_params = {
-            'length': 5000,
-            'x_gr': np.linspace(0, 10000, 11),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 500,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
         
         # Uniform mass balance
         forcing = DirectMassBalanceForcing(b0=0.5)  # +1 m/yr everywhere
@@ -1165,16 +1164,16 @@ class TestOutputFormats:
     @pytest.fixture
     def sample_result(self):
         """Create a sample model result for testing"""
-        config = FlowlineConfig(delx=25, delt=0.0125/2, ts=0, tf=10, deltout=2)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=10, deltout=2)
         
         basic_params = {
-            'length': 2000,
-            'x_gr': np.linspace(0, 4000, 5),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 200,
             'width': 500
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 50 * (1 - x_gr / 1500))
+        h_init = np.maximum(0, 50 * (1 - x_gr / 8000))
         
         forcing = DirectMassBalanceForcing(b0=0.5)
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
@@ -1242,16 +1241,16 @@ class TestFeatures:
     
     def test_variable_width_geometry(self):
         """Test that variable width geometry works correctly"""
-        config = FlowlineConfig(delx=25, delt=0.0125/4, ts=0, tf=20, deltout=5)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=20, deltout=5)
         
         basic_params = {
-            'length': 5000,
-            'x_gr': np.linspace(0, 5000, 11),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 500,
             'width': 1000  # This will be overridden
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_variable_width(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
         
         forcing = DirectMassBalanceForcing(b0=0)
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
@@ -1267,16 +1266,16 @@ class TestFeatures:
     
     def test_pdd_temperature_forcing(self):
         """Test positive degree day temperature forcing"""
-        config = FlowlineConfig(delx=25, delt=0.0125/2, ts=0, tf=20, deltout=5)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=20, deltout=5)
         
         basic_params = {
-            'length': 3000,
-            'x_gr': np.linspace(0, 3000, 7),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 300,
             'width': 800
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 80 * (1 - x_gr / 2500))
+        h_init = np.maximum(0, 80 * (1 - x_gr / 8000))
         
         # PDD forcing parameters
         forcing = TemperaturePrecipitationForcing(
@@ -1378,16 +1377,16 @@ class TestErrorHandling:
     
     def test_extreme_mass_balance_handling(self):
         """Test handling of extreme mass balance values"""
-        config = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=5, deltout=1)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=5, deltout=1)
         
         basic_params = {
-            'length': 2000,
-            'x_gr': np.linspace(0, 2000, 5),
+            'length': 20000,
+            'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 200,
             'width': 500
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 50 * (1 - x_gr / 1500))
+        h_init = np.maximum(0, 50 * (1 - x_gr / 8000))
         
         # Extremely negative mass balance
         forcing = DirectMassBalanceForcing(b0=-50)  # -50 m/yr
