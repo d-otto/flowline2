@@ -438,7 +438,7 @@ class TestMassBalanceResponses:
             cache_path.unlink()
 
         # Config for a long spin-up run
-        ss_config = FlowlineConfig(ts=0, tf=1000, delx=25)
+        ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/64)
         
         basic_params = {
             'length': 10000,
@@ -768,7 +768,7 @@ class TestNumericalSensitivity:
         # Base configuration
         # Timestep delt must be scaled with delx to maintain stability.
         # A common scaling for this type of problem is delt ~ delx^2.
-        base_delt = 0.0125 / 8
+        base_delt = 0.0125 / 64  # Use a smaller base delt for stability with delx=25
         config_base = FlowlineConfig(delx=25, delt=base_delt, ts=0, tf=100)
         config_fine = FlowlineConfig(delx=12.5, delt=base_delt/4, ts=0, tf=100)
         config_coarse = FlowlineConfig(delx=50, delt=base_delt*4, ts=0, tf=100)
@@ -966,7 +966,7 @@ class TestBoundaryConditions:
     def test_glacier_head_boundary(self):
         """Test behavior at glacier head (upstream boundary)"""
         # Use a smaller timestep for stability with high accumulation
-        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=50)
+        config = FlowlineConfig(delx=25, delt=0.0125/128, ts=0, tf=50)
         
         # Create geometry with very high mass balance at head
         basic_params = {
@@ -992,7 +992,7 @@ class TestBoundaryConditions:
     
     def test_glacier_terminus_boundary(self):
         """Test behavior at glacier terminus"""
-        config = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=50)
+        config = FlowlineConfig(delx=25, delt=0.0125/64, ts=0, tf=50)
         
         basic_params = {
             'length': 5000,
@@ -1028,7 +1028,7 @@ class TestMassConservation:
     
     def test_mass_conservation_uniform_mb(self):
         """Test mass conservation with uniform mass balance"""
-        config = FlowlineConfig(delx=25, delt=0.0125/4, ts=0, tf=10000, deltout=1)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=10000, deltout=1)
         
         basic_params = {
             'length': 5000,
