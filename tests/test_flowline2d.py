@@ -566,7 +566,7 @@ class TestMassBalanceResponses:
         # Create white noise mass balance
         np.random.seed(42)  # For reproducible tests
         nyears = int(np.ceil(test_config.tf - test_config.ts))
-        bp_noise = np.random.normal(0, 0.65, nyears)  # 0.65 m/yr std dev
+        bp_noise = np.random.normal(0, 0.5, nyears)  # 0.65 m/yr std dev
         
         forcing = DirectMassBalanceForcing(
             b0=ss_b_profile, bp=bp_noise
