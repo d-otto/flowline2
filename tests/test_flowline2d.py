@@ -51,13 +51,13 @@ def ss_result_uniform():
     """
     # CENTRALIZED GLACIER PARAMETERS - easy to modify for all tests
     GLACIER_PARAMS = {
-        'length': 10000,
-        'x_gr_max': 20000,
+        'bed_characteristic_length': 15000,  # Characteristic length for bed geometry
+        'domain_extent': 15000,              # Max extent of the model domain (m)
         'x_gr_points': 41,
         'elevation_drop': 1500,
         'width': 1000,
         'initial_thickness_scale': 100,
-        'initial_thickness_length_scale': 8000,
+        'initial_glacier_length': 10000,     # Initial glacier length for spin-up (m)
         'T0': 6,
         'P0': 2,
         'gamma': 6.5e-3,
@@ -78,10 +78,10 @@ def ss_result_uniform():
     # Config for a long spin-up run
     ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/64)
     
-    x_gr = np.linspace(0, GLACIER_PARAMS['x_gr_max'], GLACIER_PARAMS['x_gr_points'])
+    x_gr = np.linspace(0, GLACIER_PARAMS['domain_extent'], GLACIER_PARAMS['x_gr_points'])
     
     basic_params = {
-        'length': GLACIER_PARAMS['length'],
+        'bed_characteristic_length': GLACIER_PARAMS['bed_characteristic_length'],
         'x_gr': x_gr,
         'elevation_drop': GLACIER_PARAMS['elevation_drop'],
         'width': GLACIER_PARAMS['width']
@@ -90,7 +90,7 @@ def ss_result_uniform():
     x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
     
     h_init = np.maximum(0, GLACIER_PARAMS['initial_thickness_scale'] * 
-                        (1 - x_gr / GLACIER_PARAMS['initial_thickness_length_scale']))
+                        (1 - x_gr / GLACIER_PARAMS['initial_glacier_length']))
     geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
 
     forcing = TemperaturePrecipitationForcing(
@@ -113,10 +113,10 @@ class TestGeometry:
     @pytest.fixture
     def basic_geometry_params(self):
         """Standard geometry parameters for testing"""
-        length = 20000  # 20 km
-        x_gr = np.linspace(0, length, 41)  # 41 points for smooth interpolation
+        domain_extent = 15000  # 15 km
+        x_gr = np.linspace(0, domain_extent, 41)  # 41 points for smooth interpolation
         return {
-            'length': length,
+            'bed_characteristic_length': domain_extent,
             'x_gr': x_gr,
             'elevation_drop': 1000,  # m
             'width': 1000,  # m
@@ -125,7 +125,7 @@ class TestGeometry:
     def create_uniform_slope(self, params):
         """Create uniform slope bed profile"""
         x_gr = params['x_gr']
-        zb_gr = params['elevation_drop'] * (1 - x_gr / params['length'])
+        zb_gr = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
         w_geom = np.full_like(x_gr, params['width'])
         return x_gr, zb_gr, w_geom
     
@@ -133,9 +133,9 @@ class TestGeometry:
         """Create slightly concave bed profile"""
         x_gr = params['x_gr']
         # Base uniform slope
-        zb_uniform = params['elevation_drop'] * (1 - x_gr / params['length'])
+        zb_uniform = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
         # Add concave perturbation (200m amplitude at midpoint)
-        perturbation = -200 * np.sin(np.pi * x_gr / params['length'])**2
+        perturbation = -200 * np.sin(np.pi * x_gr / params['bed_characteristic_length'])**2
         zb_gr = zb_uniform + perturbation
         w_geom = np.full_like(x_gr, params['width'])
         return x_gr, zb_gr, w_geom
@@ -144,9 +144,9 @@ class TestGeometry:
         """Create slightly convex bed profile"""
         x_gr = params['x_gr']
         # Base uniform slope
-        zb_uniform = params['elevation_drop'] * (1 - x_gr / params['length'])
+        zb_uniform = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
         # Add convex perturbation (200m amplitude at midpoint)
-        perturbation = 200 * np.sin(np.pi * x_gr / params['length'])**2
+        perturbation = 200 * np.sin(np.pi * x_gr / params['bed_characteristic_length'])**2
         zb_gr = zb_uniform + perturbation
         w_geom = np.full_like(x_gr, params['width'])
         return x_gr, zb_gr, w_geom
@@ -154,9 +154,9 @@ class TestGeometry:
     def create_variable_width(self, params):
         """Create variable width profile"""
         x_gr = params['x_gr']
-        zb_gr = params['elevation_drop'] * (1 - x_gr / params['length'])
+        zb_gr = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
         # Width varies from 2km at head to 0.5km at terminus
-        w_geom = 2000 - 1500 * (x_gr / params['length'])
+        w_geom = 2000 - 1500 * (x_gr / params['bed_characteristic_length'])
         return x_gr, zb_gr, w_geom
     
     def test_geometry_interpolation(self, basic_geometry_params):
@@ -180,7 +180,7 @@ class TestGeometry:
         geometry.setup_grid(delx=50)
         
         # For uniform slope, gradient should be approximately constant
-        expected_slope = -basic_geometry_params['elevation_drop'] / basic_geometry_params['length']
+        expected_slope = -basic_geometry_params['elevation_drop'] / basic_geometry_params['bed_characteristic_length']
         mean_slope = np.mean(geometry.dzbdx)
         
         assert abs(mean_slope - expected_slope) < 0.01  # Within 1% of expected
@@ -948,13 +948,13 @@ class TestBoundaryConditions:
         
         # Create geometry with very high mass balance at head
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
+            'bed_characteristic_length': 15000,
+            'x_gr': np.linspace(0, 15000, 41),
             'elevation_drop': 500,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         # High accumulation at head
         forcing = DirectMassBalanceForcing(b0=0.5)  # +5 m/yr everywhere
@@ -973,13 +973,13 @@ class TestBoundaryConditions:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=50)
         
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
+            'bed_characteristic_length': 15000,
+            'x_gr': np.linspace(0, 15000, 41),
             'elevation_drop': 1000,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         # Strong ablation to test terminus retreat
         forcing = DirectMassBalanceForcing(b0=-1)  # -2 m/yr everywhere
@@ -1009,13 +1009,13 @@ class TestMassConservation:
         config = FlowlineConfig(delx=25, delt=0.0125/64, ts=0, tf=10000, deltout=1)
         
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
+            'bed_characteristic_length': 15000,
+            'x_gr': np.linspace(0, 15000, 41),
             'elevation_drop': 500,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         # Uniform mass balance
         forcing = DirectMassBalanceForcing(b0=0.5)  # +1 m/yr everywhere
@@ -1146,13 +1146,13 @@ class TestOutputFormats:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=10, deltout=2)
         
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
+            'bed_characteristic_length': 15000,
+            'x_gr': np.linspace(0, 15000, 41),
             'elevation_drop': 200,
             'width': 500
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 50 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 50 * (1 - x_gr / 10000))
         
         forcing = DirectMassBalanceForcing(b0=0.5)
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
@@ -1223,13 +1223,13 @@ class TestFeatures:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=20, deltout=5)
         
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
+            'bed_characteristic_length': 15000,
+            'x_gr': np.linspace(0, 15000, 41),
             'elevation_drop': 500,
             'width': 1000  # This will be overridden
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_variable_width(basic_params)
-        h_init = np.maximum(0, 100 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         forcing = DirectMassBalanceForcing(b0=0)
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
@@ -1248,13 +1248,13 @@ class TestFeatures:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=20, deltout=5)
         
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
+            'bed_characteristic_length': 15000,
+            'x_gr': np.linspace(0, 15000, 41),
             'elevation_drop': 300,
             'width': 800
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 80 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 80 * (1 - x_gr / 10000))
         
         # PDD forcing parameters
         forcing = TemperaturePrecipitationForcing(
