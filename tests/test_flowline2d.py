@@ -227,7 +227,7 @@ class TestSteadyStateInitialization:
         """Standard configuration for initialization runs"""
         return FlowlineConfig(
             delx=25,
-            delt=0.0125/8,
+            delt=0.0125/64,  # short timestep to ensure stability
             ts=0,
             tf=1000,  # Long enough to reach steady state
             gamma=6.5e-3,
@@ -291,7 +291,7 @@ class TestSteadyStateInitialization:
         plt.close()
     
     def create_steady_state_profile(self, geometry_func, config, forcing_params, 
-                                  initial_thickness=100):
+                                  initial_thickness=50):
         """Create steady-state ice thickness profile for testing"""
         # Create geometry
         basic_params = {
@@ -304,7 +304,7 @@ class TestSteadyStateInitialization:
         
         # Create uniform initial thickness
         h_init = np.full_like(x_gr, initial_thickness)
-        h_init[x_gr > 8000] = 0  # No ice near terminus initially
+        h_init[x_gr > basic_params["length"]] = 0  # No ice near terminus initially
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         
@@ -361,7 +361,7 @@ class TestMassBalanceResponses:
         """Configuration for response tests"""
         return FlowlineConfig(
             delx=25,
-            delt=0.0125/4,  # Slightly larger time step for faster testing
+            delt=0.0125/16,
             ts=0,
             tf=1000,
             deltout=1,
