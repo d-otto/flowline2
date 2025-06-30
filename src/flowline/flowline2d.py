@@ -875,7 +875,11 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
     Qp = np.zeros(x.size)  # Qp equals j+1/2 flux
     Qm = np.zeros(x.size)  # Qm equals j-1/2 flux
     dhdt = np.zeros(x.size)  # zero out thickness rate of change array
-    rho_g_cu = (rho * g) ** n
+    
+    # Pre-calculate powers of rho*g for performance
+    rho_g_n = (rho * g) ** n
+    rho_g_k = (rho * g) ** k
+    
     dzdx = (dzbdx[:-1] + dzbdx[1:]) / 2  # slope at plus half a grid point
     # -----------------------------------------
     # begin loop over space
@@ -884,34 +888,49 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
         if j == 0:
             h_ave = (h[0] + h[1]) / 2
             dhdx = (h[1] - h[0]) / delx
-            Qp[0] = (
-                -rho_g_cu * (dhdx + dzdx[j]) ** 3 * (fd * h_ave**(n+2) + fs * h_ave**k)  # top of glacier qp
-            )  # flux at plus half grid point
+            slope = dhdx + dzdx[j]
+            
+            # Separate flux calculation for deformation and sliding
+            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
+            flux_s = rho_g_k * slope**k * fs * h_ave**k
+            Qp[0] = -(flux_d + flux_s)
+
             # Qm[0] = 0  # flux at minus half grid point
             dhdt[0] = b[0] - Qp[0] / (delx / 2) - (Qp[0] + Qm[0]) / (2 * w[0]) * dwdx[0]
         elif (h[j] <= min_thick) & (h[j - 1] > min_thick):  # glacier toe condition
             # Qp[j] = 0
             h_ave = h[j - 1] / 2
             dhdx = -h[j - 1] / delx  # correction inserted ght nov-24-04
-            Qm[j] = (
-                -rho_g_cu * (dhdx + dzdx[j - 1]) ** 3 * (fd * h_ave**(n+2) + fs * h_ave**k)
-            )  # glacier toe qm
+            slope = dhdx + dzdx[j - 1]
+            
+            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
+            flux_s = rho_g_k * slope**k * fs * h_ave**k
+            Qm[j] = -(flux_d + flux_s)
+
             dhdt[j] = b[j] + Qm[j] / delx - (Qp[j] + Qm[j]) / (2 * w[j]) * dwdx[j]
         elif (h[j] <= min_thick) & (h[j - 1] <= min_thick):  # beyond glacier toe - no glacier flux
             dhdt[j] = b[j]
             # Qp[j] = 0
             # Qm[j] = 0
         else:  # within the glacier
+            # Flux at j + 1/2
             h_ave = (h[j + 1] + h[j]) / 2
-            dhdx = (h[j + 1] - h[j]) / delx  # correction inserted ght nov-24-04
-            Qp[j] = (
-                -rho_g_cu * (dhdx + dzdx[j]) ** 3 * (fd * h_ave**(n+2) + fs * h_ave**k)
-            )  # Within glacier qp
+            dhdx = (h[j + 1] - h[j]) / delx
+            slope = dhdx + dzdx[j]
+            
+            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
+            flux_s = rho_g_k * slope**k * fs * h_ave**k
+            Qp[j] = -(flux_d + flux_s)
+
+            # Flux at j - 1/2
             h_ave = (h[j - 1] + h[j]) / 2
             dhdx = (h[j] - h[j - 1]) / delx
-            Qm[j] = (
-                -rho_g_cu * (dhdx + dzdx[j - 1]) ** 3 * (fd * h_ave**(n+2) + fs * h_ave**k)
-            )  # within glacier qm
+            slope = dhdx + dzdx[j - 1]
+            
+            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
+            flux_s = rho_g_k * slope**k * fs * h_ave**k
+            Qm[j] = -(flux_d + flux_s)
+
             dhdt[j] = b[j] - (Qp[j] - Qm[j]) / delx - (Qp[j] + Qm[j]) / (2 * w[j]) * dwdx[j]
     # ----------------------------------------
     # end loop over space
