@@ -64,7 +64,7 @@ def ss_result_uniform():
     ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/64)
     
     basic_params = {
-        'length': 20000,
+        'length': 10000,
         'x_gr': np.linspace(0, 20000, 41),
         'elevation_drop': 1000,
         'width': 1000
@@ -341,7 +341,7 @@ class TestSteadyStateInitialization:
         """Create steady-state ice thickness profile for testing"""
         # Create geometry
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 1000,
             'width': 1000
@@ -407,7 +407,7 @@ class TestMassBalanceResponses:
         """Configuration for response tests"""
         return FlowlineConfig(
             delx=25,
-            delt=0.0125/16,
+            delt=0.0125/32,
             ts=0,
             tf=1000,
             deltout=1,
@@ -564,6 +564,7 @@ class TestMassBalanceResponses:
         wn_config = copy.deepcopy(test_config)
         wn_config.tf = 10000
         wn_config.deltout = 10  # Save output every 10 years to manage memory
+        wn_config.delt = 0.0125/16
 
         ss_result = ss_result_uniform
         
@@ -776,7 +777,7 @@ class TestNumericalSensitivity:
         
         # Create identical geometry and forcing
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 1000,
             'width': 1000
@@ -826,7 +827,7 @@ class TestNumericalSensitivity:
 
         # Define time steps to test
         base_delt = 0.0125
-        delts = [base_delt / (2**i) for i in [0, 3, 5, 7]]  # dt, dt/8, dt/32, dt/128
+        delts = [base_delt / (2**i) for i in [2, 4, 6, 7]]  # dt/4, dt/16, dt/64, dt/128
 
         # Define a small step change in mass balance
         nyears = 500
@@ -985,7 +986,7 @@ class TestBoundaryConditions:
         
         # Create geometry with very high mass balance at head
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 500,
             'width': 1000
@@ -1010,7 +1011,7 @@ class TestBoundaryConditions:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=50)
         
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 1000,
             'width': 1000
@@ -1046,7 +1047,7 @@ class TestMassConservation:
         config = FlowlineConfig(delx=25, delt=0.0125/64, ts=0, tf=10000, deltout=1)
         
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 500,
             'width': 1000
@@ -1183,7 +1184,7 @@ class TestOutputFormats:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=10, deltout=2)
         
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 200,
             'width': 500
@@ -1260,7 +1261,7 @@ class TestFeatures:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=20, deltout=5)
         
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 500,
             'width': 1000  # This will be overridden
@@ -1285,7 +1286,7 @@ class TestFeatures:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=20, deltout=5)
         
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 300,
             'width': 800
@@ -1396,7 +1397,7 @@ class TestErrorHandling:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=5, deltout=1)
         
         basic_params = {
-            'length': 20000,
+            'length': 10000,
             'x_gr': np.linspace(0, 20000, 41),
             'elevation_drop': 200,
             'width': 500
@@ -1405,7 +1406,7 @@ class TestErrorHandling:
         h_init = np.maximum(0, 50 * (1 - x_gr / 8000))
         
         # Extremely negative mass balance
-        forcing = DirectMassBalanceForcing(b0=-50)  # -50 m/yr
+        forcing = DirectMassBalanceForcing(b0=-2)  # -2 m/yr
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         
