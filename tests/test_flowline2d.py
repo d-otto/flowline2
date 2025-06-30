@@ -45,10 +45,25 @@ QC_FIGURE_DIR.mkdir(exist_ok=True)
 @pytest.fixture(scope="session")
 def ss_result_uniform():
     """
-    Session-scoped fixture to generate and cache a steady-state profile.
-    This runs only once per test session, speeding up tests that need
-    a steady-state initial condition.
+    Session-scoped fixture to generate and cache a steady-state profile for
+    ALL tests requiring an initial glacier state. This runs only once per test
+    session, speeding up tests that need a steady-state initial condition.
     """
+    # CENTRALIZED GLACIER PARAMETERS - easy to modify for all tests
+    GLACIER_PARAMS = {
+        'length': 10000,
+        'x_gr_max': 20000,
+        'x_gr_points': 41,
+        'elevation_drop': 1000,
+        'width': 1000,
+        'initial_thickness_scale': 200,
+        'initial_thickness_length_scale': 8000,
+        'T0': 10,
+        'P0': 4,
+        'gamma': 6.5e-3,
+        'mu': 0.65,
+    }
+
     bed_type = 'uniform'
     cache_dir = QC_FIGURE_DIR / "test_cache"
     cache_dir.mkdir(exist_ok=True)
@@ -63,20 +78,24 @@ def ss_result_uniform():
     # Config for a long spin-up run
     ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/64)
     
+    x_gr = np.linspace(0, GLACIER_PARAMS['x_gr_max'], GLACIER_PARAMS['x_gr_points'])
+    
     basic_params = {
-        'length': 10000,
-        'x_gr': np.linspace(0, 20000, 41),
-        'elevation_drop': 1000,
-        'width': 1000
+        'length': GLACIER_PARAMS['length'],
+        'x_gr': x_gr,
+        'elevation_drop': GLACIER_PARAMS['elevation_drop'],
+        'width': GLACIER_PARAMS['width']
     }
     
     x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
     
-    h_init = np.maximum(0, 200 * (1 - x_gr / 8000))
+    h_init = np.maximum(0, GLACIER_PARAMS['initial_thickness_scale'] * 
+                        (1 - x_gr / GLACIER_PARAMS['initial_thickness_length_scale']))
     geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
 
     forcing = TemperaturePrecipitationForcing(
-        T0=10, P0=4, gamma=6.5e-3, mu=0.65, ts=ss_config.ts, tf=ss_config.tf
+        T0=GLACIER_PARAMS['T0'], P0=GLACIER_PARAMS['P0'], gamma=GLACIER_PARAMS['gamma'], 
+        mu=GLACIER_PARAMS['mu'], ts=ss_config.ts, tf=ss_config.tf
     )
 
     model_ss = flowline2d(config=ss_config, geometry=geometry, forcing=forcing)
@@ -268,17 +287,6 @@ class TestMassBalanceForcing:
 class TestSteadyStateInitialization:
     """Test steady-state initialization for test scenarios"""
     
-    @pytest.fixture
-    def standard_config(self):
-        """Standard configuration for initialization runs"""
-        return FlowlineConfig(
-            delx=25,
-            delt=0.0125/64, 
-            ts=0,
-            tf=1000,  # Long enough to reach steady state
-            gamma=6.5e-3,
-            mu=0.65
-        )
     
     def _create_qc_figure(self, result, title, filename):
         """Create QC figure for steady-state results"""
@@ -336,54 +344,9 @@ class TestSteadyStateInitialization:
         plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
         plt.close()
     
-    def create_steady_state_profile(self, geometry_func, config, forcing_params, 
-                                  initial_thickness=50):
-        """Create steady-state ice thickness profile for testing"""
-        # Create geometry
-        basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
-            'elevation_drop': 1000,
-            'width': 1000
-        }
-        x_gr, zb_gr, w_geom = geometry_func(basic_params)
-        
-        # Create uniform initial thickness
-        h_init = np.full_like(x_gr, initial_thickness)
-        h_init[x_gr > basic_params["length"]] = 0  # No ice near terminus initially
-        
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
-        
-        # Create forcing, ensuring ts and tf match the model config
-        forcing_params['ts'] = config.ts
-        forcing_params['tf'] = config.tf
-        if 'T0' in forcing_params:
-            forcing = TemperaturePrecipitationForcing(**forcing_params)
-        else:
-            forcing = DirectMassBalanceForcing(**forcing_params)
-        
-        # Run to steady state
-        model = flowline2d(config=config, geometry=geometry, forcing=forcing)
-        result = model.run()
-        
-        # Return final thickness profile for use in tests
-        return result.x, result.h[-1, :], result
-    
-    def test_steady_state_convergence(self, standard_config):
+    def test_steady_state_convergence(self, ss_result_uniform):
         """Test that model reaches steady state"""
-        # Create simple forcing
-        forcing_params = {
-            'T0': 10,
-            'P0': 4,
-            'gamma': 6.5e-3,
-            'mu': 0.65
-        }
-        
-        x, h_final, result = self.create_steady_state_profile(
-            TestGeometry().create_uniform_slope,
-            standard_config,
-            forcing_params
-        )
+        result = ss_result_uniform
         
         # Create QC figure
         self._create_qc_figure(result, 
@@ -765,7 +728,7 @@ class TestMassBalanceResponses:
 class TestNumericalSensitivity:
     """Test numerical sensitivity to grid resolution and time stepping"""
     
-    def test_grid_resolution_sensitivity(self):
+    def test_grid_resolution_sensitivity(self, ss_result_uniform):
         """Test that results are consistent across different grid resolutions"""
         # Base configuration
         # Timestep delt must be scaled with delx to maintain stability.
@@ -775,24 +738,23 @@ class TestNumericalSensitivity:
         config_fine = FlowlineConfig(delx=12.5, delt=base_delt/4, ts=0, tf=100)
         config_coarse = FlowlineConfig(delx=50, delt=base_delt*4, ts=0, tf=100)
         
-        # Create identical geometry and forcing
-        basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
-            'elevation_drop': 1000,
-            'width': 1000
-        }
-        x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 200 * (1 - x_gr / 8000))
-        
+        # Use geometry from the steady-state fixture
+        x_gr = ss_result_uniform.x_gr
+        zb_gr = ss_result_uniform.zb_gr
+        w_geom = ss_result_uniform.w_geom
+
+        # Use the same forcing that created the steady state, so glacier is near equilibrium
         forcing_params = {
-            'T0': 5, 'P0': 4, 'gamma': 6.5e-3, 'mu': 0.65
+            'T0': ss_result_uniform.forcing.T0,
+            'P0': ss_result_uniform.forcing.P0,
+            'gamma': ss_result_uniform.forcing.gamma,
+            'mu': ss_result_uniform.forcing.mu
         }
         
         # Run models with different resolutions
         results = {}
         for name, config in [('base', config_base), ('fine', config_fine), ('coarse', config_coarse)]:
-            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, profile=ss_result_uniform)
             
             # Ensure forcing uses the correct time range for this config
             run_forcing_params = forcing_params.copy()
