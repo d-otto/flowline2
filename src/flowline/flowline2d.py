@@ -67,13 +67,11 @@ class FlowlineConfig:
     delx: float = 50           # Grid spacing in m
     delt: float = 0.0125 / 8   # Time step in yrs
     ts: float = 0              # Starting time yr
-    tf: float = 2025           # Ending time yr
+    tf: float = 100            # Ending time yr
     min_thick: float = 1       # Minimum thickness for ice at terminus
     
     # Output parameters
     deltout: float = 1         # Frequency to save output
-    dt_plot: int = 100         # Plotting interval yr
-    rt_plot: bool = False      # Real time plotting
     xlim0: float = None        # Left limit for plots
     
     # Climate parameters
@@ -872,7 +870,7 @@ class flowline2d:
         return sigL / sigdL
 
 
-@nb.njit(fastmath={"contract", "arcp", "nsz", "afn", "reassoc"})
+@nb.njit(fastmath=False, parallel=True)
 def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thick, n,k):
     Qp = np.zeros(x.size)  # Qp equals j+1/2 flux
     Qm = np.zeros(x.size)  # Qm equals j-1/2 flux
