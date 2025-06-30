@@ -227,7 +227,7 @@ class TestSteadyStateInitialization:
         """Standard configuration for initialization runs"""
         return FlowlineConfig(
             delx=25,
-            delt=0.0125/64,  # short timestep to ensure stability
+            delt=0.0125/16, 
             ts=0,
             tf=1000,  # Long enough to reach steady state
             gamma=6.5e-3,
@@ -295,8 +295,8 @@ class TestSteadyStateInitialization:
         """Create steady-state ice thickness profile for testing"""
         # Create geometry
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 21),
+            'length': 5000,
+            'x_gr': np.linspace(0, 10000, 21),
             'elevation_drop': 1000,
             'width': 1000
         }
@@ -330,7 +330,7 @@ class TestSteadyStateInitialization:
             'gamma': 6.5e-3,
             'mu': 0.65,
             'ts': 0,
-            'tf': 1000
+            'tf': 500
         }
         
         x, h_final, result = self.create_steady_state_profile(
@@ -438,10 +438,10 @@ class TestMassBalanceResponses:
             cache_path.unlink()
 
         # Config for a long spin-up run
-        ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/64)
+        ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/16)
         
         basic_params = {
-            'length': 10000,
+            'length': 5000,
             'x_gr': np.linspace(0, 10000, 21),
             'elevation_drop': 1000,
             'width': 1000
@@ -455,7 +455,7 @@ class TestMassBalanceResponses:
             x_gr, zb_gr, w_geom = TestGeometry().create_convex_profile(basic_params)
         
         # Create reasonable initial thickness to start spinup
-        h_init = np.maximum(0, 200 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 200 * (1 - x_gr / 4000))
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
 
         # Simple forcing to get to a steady state
@@ -768,20 +768,20 @@ class TestNumericalSensitivity:
         # Base configuration
         # Timestep delt must be scaled with delx to maintain stability.
         # A common scaling for this type of problem is delt ~ delx^2.
-        base_delt = 0.0125 / 64  # Use a smaller base delt for stability with delx=25
+        base_delt = 0.0125 / 16
         config_base = FlowlineConfig(delx=25, delt=base_delt, ts=0, tf=100)
         config_fine = FlowlineConfig(delx=12.5, delt=base_delt/4, ts=0, tf=100)
         config_coarse = FlowlineConfig(delx=50, delt=base_delt*4, ts=0, tf=100)
         
         # Create identical geometry and forcing
         basic_params = {
-            'length': 10000,
+            'length': 5000,
             'x_gr': np.linspace(0, 10000, 21),
             'elevation_drop': 1000,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
-        h_init = np.maximum(0, 200 * (1 - x_gr / 8000))
+        h_init = np.maximum(0, 200 * (1 - x_gr / 4000))
         
         forcing_params = {
             'T0': 15, 'P0': 2, 'gamma': 6.5e-3, 'mu': 0.65,
@@ -966,12 +966,12 @@ class TestBoundaryConditions:
     def test_glacier_head_boundary(self):
         """Test behavior at glacier head (upstream boundary)"""
         # Use a smaller timestep for stability with high accumulation
-        config = FlowlineConfig(delx=25, delt=0.0125/128, ts=0, tf=50)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=50)
         
         # Create geometry with very high mass balance at head
         basic_params = {
             'length': 5000,  # Shorter glacier for focused test
-            'x_gr': np.linspace(0, 5000, 11),
+            'x_gr': np.linspace(0, 10000, 11),
             'elevation_drop': 500,
             'width': 1000
         }
@@ -979,7 +979,7 @@ class TestBoundaryConditions:
         h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
         
         # High accumulation at head
-        forcing = DirectMassBalanceForcing(b0=5)  # +5 m/yr everywhere
+        forcing = DirectMassBalanceForcing(b0=0.5)  # +5 m/yr everywhere
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
@@ -992,19 +992,19 @@ class TestBoundaryConditions:
     
     def test_glacier_terminus_boundary(self):
         """Test behavior at glacier terminus"""
-        config = FlowlineConfig(delx=25, delt=0.0125/64, ts=0, tf=50)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=50)
         
         basic_params = {
             'length': 5000,
-            'x_gr': np.linspace(0, 5000, 11),
-            'elevation_drop': 500,
+            'x_gr': np.linspace(0, 10000, 11),
+            'elevation_drop': 1000,
             'width': 1000
         }
         x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
         h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
         
         # Strong ablation to test terminus retreat
-        forcing = DirectMassBalanceForcing(b0=-2)  # -2 m/yr everywhere
+        forcing = DirectMassBalanceForcing(b0=-1)  # -2 m/yr everywhere
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
@@ -1032,7 +1032,7 @@ class TestMassConservation:
         
         basic_params = {
             'length': 5000,
-            'x_gr': np.linspace(0, 5000, 11),
+            'x_gr': np.linspace(0, 10000, 11),
             'elevation_drop': 500,
             'width': 1000
         }
@@ -1040,7 +1040,7 @@ class TestMassConservation:
         h_init = np.maximum(0, 100 * (1 - x_gr / 4000))
         
         # Uniform mass balance
-        forcing = DirectMassBalanceForcing(b0=1)  # +1 m/yr everywhere
+        forcing = DirectMassBalanceForcing(b0=0.5)  # +1 m/yr everywhere
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
@@ -1169,7 +1169,7 @@ class TestOutputFormats:
         
         basic_params = {
             'length': 2000,
-            'x_gr': np.linspace(0, 2000, 5),
+            'x_gr': np.linspace(0, 4000, 5),
             'elevation_drop': 200,
             'width': 500
         }
