@@ -237,6 +237,9 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
     
     def get_mass_balance(self, x, h_eff, year_idx):
         """Calculate mass balance from temperature and precipitation"""
+        # Clip year_idx to prevent index out of bounds on the last step
+        year_idx = min(year_idx, len(self.Pp) - 1)
+        
         accumulation = (self.P0 + self.Pp[year_idx]) * np.ones(x.size)
         T_wk = ((self.T0 + self.Tp[year_idx]) * np.ones(x.size) + 
                 self.temp[year_idx] - self.gamma * h_eff)
