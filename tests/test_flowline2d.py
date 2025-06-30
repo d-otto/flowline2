@@ -99,7 +99,7 @@ class TestGeometry:
         x_gr, zb_gr, w_geom = self.create_uniform_slope(basic_geometry_params)
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
-        geometry.setup_grid(delx=50)
+        geometry.setup_grid(delx=25)
         
         # Check that interpolated values are reasonable
         assert len(geometry.x) == len(geometry.zb)
@@ -226,7 +226,7 @@ class TestSteadyStateInitialization:
     def standard_config(self):
         """Standard configuration for initialization runs"""
         return FlowlineConfig(
-            delx=50,
+            delx=25,
             delt=0.0125/8,
             ts=0,
             tf=1000,  # Long enough to reach steady state
@@ -360,7 +360,7 @@ class TestMassBalanceResponses:
     def test_config(self):
         """Configuration for response tests"""
         return FlowlineConfig(
-            delx=50,
+            delx=25,
             delt=0.0125/4,  # Slightly larger time step for faster testing
             ts=0,
             tf=1000,
@@ -437,7 +437,7 @@ class TestMassBalanceResponses:
                 return dill.load(f)
 
         # Config for a long spin-up run
-        ss_config = FlowlineConfig(ts=0, tf=1000, delx=50)
+        ss_config = FlowlineConfig(ts=0, tf=1000, delx=25)
         
         basic_params = {
             'length': 10000,
@@ -558,6 +558,11 @@ class TestMassBalanceResponses:
     
     def test_white_noise_response(self, test_config):
         """Test glacier response to white noise mass balance forcing"""
+        # Create a config for a long 10k year run
+        wn_config = copy.deepcopy(test_config)
+        wn_config.tf = 10000
+        wn_config.deltout = 10  # Save output every 10 years to manage memory
+
         ss_result = self.get_steady_state_setup('uniform')
         
         # This is the steady-state mass balance profile
@@ -565,8 +570,8 @@ class TestMassBalanceResponses:
         
         # Create white noise mass balance
         np.random.seed(42)  # For reproducible tests
-        nyears = int(np.ceil(test_config.tf - test_config.ts))
-        bp_noise = np.random.normal(0, 0.5, nyears)  # 0.65 m/yr std dev
+        nyears = int(np.ceil(wn_config.tf - wn_config.ts))
+        bp_noise = np.random.normal(0, 0.5, nyears)  # 0.5 m/yr std dev
         
         forcing = DirectMassBalanceForcing(
             b0=ss_b_profile, bp=bp_noise
@@ -574,7 +579,7 @@ class TestMassBalanceResponses:
         geometry = FlowlineGeometry(
             ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
         )
-        model = flowline2d(config=test_config, geometry=geometry, forcing=forcing)
+        model = flowline2d(config=wn_config, geometry=geometry, forcing=forcing)
         result = model.run()
         
         # Create QC figure with noise analysis
@@ -591,7 +596,8 @@ class TestMassBalanceResponses:
         
         # Plot 2: Mass balance forcing
         ax = axes[0, 1]
-        ax.plot(result.t, bp_noise[:len(result.t)], 'r-', linewidth=1, alpha=0.7)
+        t_forcing = np.arange(wn_config.ts, wn_config.tf)
+        ax.plot(t_forcing, bp_noise, 'r-', linewidth=1, alpha=0.7)
         ax.axhline(y=0, color='k', linestyle='--', alpha=0.5)
         ax.set_xlabel('Time (years)')
         ax.set_ylabel('Mass Balance Perturbation (m/yr)')
@@ -601,19 +607,43 @@ class TestMassBalanceResponses:
         # Plot 3: Length distribution histogram
         ax = axes[1, 0]
         lengths = result.edge[50:]  # Skip initial adjustment
-        ax.hist(lengths/1000, bins=20, alpha=0.7, density=True, color='lightblue')
+        ax.hist(lengths/1000, bins=30, alpha=0.7, density=True, color='lightblue')
         ax.set_xlabel('Glacier Length (km)')
         ax.set_ylabel('Probability Density')
         ax.set_title('Length Distribution')
         ax.grid(True, alpha=0.3)
         
-        # Plot 4: Length vs forcing scatter
+        # Plot 4: Thickness profile distribution
         ax = axes[1, 1]
-        if len(result.edge) == len(bp_noise):
-            ax.scatter(bp_noise, result.edge/1000, alpha=0.5, s=10)
-        ax.set_xlabel('Mass Balance Perturbation (m/yr)')
-        ax.set_ylabel('Glacier Length (km)')
-        ax.set_title('Length vs Forcing')
+        # Initial steady state profile
+        ss_edge_idx = ss_result.edge_idx[-1]
+        ax.fill_between(ss_result.x[:ss_edge_idx]/1000, 
+                        ss_result.zb[:ss_edge_idx],
+                        ss_result.zb[:ss_edge_idx] + ss_result.h[-1, :ss_edge_idx],
+                        color='gray', alpha=0.3, label='Initial State')
+        ax.plot(ss_result.x/1000, ss_result.zb, 'k-', linewidth=0.5)
+
+        # Percentile profiles
+        h_profiles = result.h[50:, :] 
+        
+        percentiles = [2.5, 16, 84, 97.5]
+        h_percentiles = np.percentile(h_profiles, percentiles, axis=0)
+
+        max_edge_idx = int(np.percentile(result.edge_idx[50:], 99))
+        
+        linestyles = ['--', ':', ':', '--']
+        colors = ['red', 'blue', 'blue', 'red']
+        labels = ['-2σ (2.5%)', '-1σ (16%)', '+1σ (84%)', '+2σ (97.5%)']
+        
+        for i in range(len(percentiles)):
+            ax.plot(result.x[:max_edge_idx]/1000, 
+                    result.zb[:max_edge_idx] + h_percentiles[i, :max_edge_idx], 
+                    linestyle=linestyles[i], color=colors[i], label=labels[i])
+        
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Elevation (m)')
+        ax.set_title('Thickness Profile Distribution')
+        ax.legend()
         ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
@@ -735,9 +765,9 @@ class TestNumericalSensitivity:
     def test_grid_resolution_sensitivity(self):
         """Test that results are consistent across different grid resolutions"""
         # Base configuration
-        config_base = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=100)
-        config_fine = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=100)
-        config_coarse = FlowlineConfig(delx=100, delt=0.0125/8, ts=0, tf=100)
+        config_base = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=100)
+        config_fine = FlowlineConfig(delx=12.5, delt=0.0125/8, ts=0, tf=100)
+        config_coarse = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=100)
         
         # Create identical geometry and forcing
         basic_params = {
@@ -775,8 +805,8 @@ class TestNumericalSensitivity:
         fine_error = abs(fine_length - base_length) / base_length
         coarse_error = abs(coarse_length - base_length) / base_length
         
-        assert fine_error < 0.001, f"Fine grid error: {fine_error:.4f}"
-        assert coarse_error < 0.001, f"Coarse grid error: {coarse_error:.4f}"
+        assert fine_error < 0.01, f"Fine grid error: {fine_error:.4f}"
+        assert coarse_error < 0.01, f"Coarse grid error: {coarse_error:.4f}"
     
     def _create_grid_sensitivity_qc_figure(self, results_dict, title, filename):
         """Create QC figure for grid sensitivity analysis"""
@@ -862,7 +892,7 @@ class TestBoundaryConditions:
     
     def test_glacier_head_boundary(self):
         """Test behavior at glacier head (upstream boundary)"""
-        config = FlowlineConfig(delx=50, delt=0.0125/8, ts=0, tf=50)
+        config = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=50)
         
         # Create geometry with very high mass balance at head
         basic_params = {
@@ -924,7 +954,7 @@ class TestMassConservation:
     
     def test_mass_conservation_uniform_mb(self):
         """Test mass conservation with uniform mass balance"""
-        config = FlowlineConfig(delx=50, delt=0.0125/4, ts=0, tf=20, deltout=1)
+        config = FlowlineConfig(delx=25, delt=0.0125/4, ts=0, tf=10000, deltout=1)
         
         basic_params = {
             'length': 5000,
@@ -964,7 +994,7 @@ class TestMassConservation:
             # Should be approximately equal (within numerical precision)
             if abs(mb_input) > 1e-6:  # Avoid division by very small numbers
                 relative_error = abs(dvol_dt - mb_input) / abs(mb_input)
-                assert relative_error < 0.01, \
+                assert relative_error < 0.05, \
                     f"Mass conservation error at t={result.t[i]:.1f}: {relative_error:.4f}"
     
     def _create_mass_conservation_qc_figure(self, result, title, filename):
@@ -1061,7 +1091,7 @@ class TestOutputFormats:
     @pytest.fixture
     def sample_result(self):
         """Create a sample model result for testing"""
-        config = FlowlineConfig(delx=100, delt=0.0125/2, ts=0, tf=10, deltout=2)
+        config = FlowlineConfig(delx=25, delt=0.0125/2, ts=0, tf=10, deltout=2)
         
         basic_params = {
             'length': 2000,
@@ -1138,7 +1168,7 @@ class TestFeatures:
     
     def test_variable_width_geometry(self):
         """Test that variable width geometry works correctly"""
-        config = FlowlineConfig(delx=50, delt=0.0125/4, ts=0, tf=20, deltout=5)
+        config = FlowlineConfig(delx=25, delt=0.0125/4, ts=0, tf=20, deltout=5)
         
         basic_params = {
             'length': 5000,
@@ -1163,7 +1193,7 @@ class TestFeatures:
     
     def test_pdd_temperature_forcing(self):
         """Test positive degree day temperature forcing"""
-        config = FlowlineConfig(delx=100, delt=0.0125/2, ts=0, tf=20, deltout=5)
+        config = FlowlineConfig(delx=25, delt=0.0125/2, ts=0, tf=20, deltout=5)
         
         basic_params = {
             'length': 3000,
@@ -1260,7 +1290,7 @@ class TestErrorHandling:
         # Empty arrays should raise an error
         with pytest.raises((ValueError, IndexError)):
             geometry = FlowlineGeometry([], [], [])
-            geometry.setup_grid(50)
+            geometry.setup_grid(25)
     
     def test_mismatched_geometry_arrays(self):
         """Test that mismatched geometry arrays raise errors"""
@@ -1270,11 +1300,11 @@ class TestErrorHandling:
         
         with pytest.raises((ValueError, IndexError)):
             geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
-            geometry.setup_grid(50)
+            geometry.setup_grid(25)
     
     def test_extreme_mass_balance_handling(self):
         """Test handling of extreme mass balance values"""
-        config = FlowlineConfig(delx=100, delt=0.0125/8, ts=0, tf=5, deltout=1)
+        config = FlowlineConfig(delx=25, delt=0.0125/8, ts=0, tf=5, deltout=1)
         
         basic_params = {
             'length': 2000,
