@@ -577,13 +577,17 @@ class flowline2d:
         if hasattr(self, 'pdd') and self.pdd is not None:
             data_vars['pdd'] = (['time', 'x'], self.pdd)
         
+        config_dict = asdict(self.config)
+        # Filter out None values, as they are not supported by netCDF attributes
+        attrs = {k: v for k, v in config_dict.items() if v is not None}
+
         ds = xr.Dataset(
             data_vars=data_vars,
             coords={
                 'time': self.t,
                 'x': self.x,
             },
-            attrs=asdict(self.config)
+            attrs=attrs
         )
         
         # Add spin-up metadata if available
