@@ -1,13 +1,13 @@
 """
-example_geometry_variations.py
+example_bed_geometry_variations.py
 
-Demonstrates how to use different bed geometry functions and compares their
-effects on glacier evolution.
+Demonstrates how to use different bedrock geometry functions (e.g., uniform slope,
+concave profile, variable width) and compares their effects on glacier evolution.
 
 This script demonstrates:
-1.  Using various geometry creation functions from `flowline.geometry`.
-2.  Running multiple simulations with different geometries.
-3.  Creating comparison plots to visualize the impact of geometry.
+1.  Using various bedrock geometry creation functions from `flowline.geometry`.
+2.  Running multiple simulations with different bedrock shapes.
+3.  Creating comparison plots to visualize the impact of bedrock geometry.
 """
 from pathlib import Path
 import numpy as np
@@ -37,7 +37,7 @@ def main():
         'bed_characteristic_length': 10000,
     }
 
-    # --- 3. Define Geometry Scenarios ---
+    # --- 3. Define Bedrock Geometry Scenarios ---
     scenarios = {
         'Uniform Slope': {
             'function': create_uniform_slope,
@@ -53,13 +53,13 @@ def main():
         },
     }
 
-    # --- 4. Run Simulations for Each Geometry ---
+    # --- 4. Run Simulations for Each Bedrock Geometry ---
     results = {}
     geometries = {}
-    print("Running simulations for different geometries...")
+    print("Running simulations for different bedrock geometries...")
     for name, scenario in scenarios.items():
         print(f"  - Running: {name}")
-        # Create geometry
+        # Create bedrock geometry
         x_gr, zb_gr, w_geom = scenario['function'](**scenario['params'])
         h_init = np.maximum(0, 100 * (1 - x_gr / 5000))
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
@@ -73,9 +73,9 @@ def main():
     # --- 5. Create Comparison Plots ---
     fig = plt.figure(figsize=(14, 10))
     gs = fig.add_gridspec(2, 2)
-    fig.suptitle("Geometry Variation Comparison", fontsize=16)
+    fig.suptitle("Bedrock Geometry Variation Comparison", fontsize=16)
 
-    # Plot 1: Bed profiles and widths
+    # Plot 1: Bedrock profiles and widths
     ax1 = fig.add_subplot(gs[0, 0])
     ax1b = ax1.twinx()
     for name, geom in geometries.items():
@@ -85,7 +85,7 @@ def main():
     ax1.set_xlabel('Distance (km)')
     ax1.set_ylabel('Elevation (m)')
     ax1b.set_ylabel('Width (m)')
-    ax1.set_title('Initial Bed and Width Profiles')
+    ax1.set_title('Initial Bedrock and Width Profiles')
     ax1.legend(loc='upper left')
     ax1b.legend(loc='lower left')
     ax1.grid(True, alpha=0.3)

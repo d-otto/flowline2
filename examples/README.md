@@ -17,7 +17,9 @@ The scripts will generate plots and save them to the `examples/example_outputs` 
 
 - `example_basic_run.py`: A simple, commented script showing the end-to-end process of setting up and running a single flowline simulation with temperature-precipitation forcing.
 
-- `example_geometry_variations.py`: Demonstrates how to use different bed geometry functions (e.g., uniform slope, concave profile, variable width) and compares their effects on the glacier's evolution.
+- `example_bed_geometry_variations.py`: Demonstrates how to use different bedrock geometry functions (e.g., uniform slope, concave profile, variable width) and compares their effects on the glacier's evolution.
+
+- `example_glacier_geometry_variations.py`: Shows how to set up the initial ice geometry (thickness profile) using different methods: from a simple function, from a saved simulation file, or directly from a previous simulation result object.
 
 - `example_forcing_variations.py`: Shows how to configure different mass balance scenarios, including using direct mass balance with step changes or noise, and compares the glacier's response. This script also shows how to perform a spin-up run to achieve a steady state.
 
