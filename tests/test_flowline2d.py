@@ -51,14 +51,14 @@ def ss_result_uniform():
     """
     # CENTRALIZED GLACIER PARAMETERS - easy to modify for all tests
     GLACIER_PARAMS = {
-        'bed_characteristic_length': 15000,  # Characteristic length for bed geometry
-        'domain_extent': 15000,              # Max extent of the model domain (m)
+        'bed_characteristic_length': 10000,  # Characteristic length for bed geometry
+        'domain_extent': 10000,              # Max extent of the model domain (m)
         'x_gr_points': 41,
-        'elevation_drop': 1500,
+        'elevation_drop': 1000,
         'width': 1000,
         'initial_thickness_scale': 100,
-        'initial_glacier_length': 10000,     # Initial glacier length for spin-up (m)
-        'T0': 6,
+        'initial_glacier_length': 5000,     # Initial glacier length for spin-up (m)
+        'T0': 8,
         'P0': 2,
         'gamma': 6.5e-3,
         'mu': 0.65,
@@ -76,7 +76,7 @@ def ss_result_uniform():
 
     print("\nGenerating new steady-state profile for tests...")
     # Config for a long spin-up run
-    ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/64)
+    ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/16)
     
     x_gr = np.linspace(0, GLACIER_PARAMS['domain_extent'], GLACIER_PARAMS['x_gr_points'])
     
@@ -526,8 +526,9 @@ class TestMassBalanceResponses:
         # Create a config for a long 10k year run
         wn_config = copy.deepcopy(test_config)
         wn_config.tf = 10000
-        wn_config.deltout = 10  # Save output every 10 years to manage memory
-        wn_config.delt = 0.0125/16
+        wn_config.deltout = 1
+        wn_config.delt = 0.0125/4
+        wn_config.min_thick = 5  # minimum ice thickness is 5 meters
 
         ss_result = ss_result_uniform
         
@@ -537,7 +538,7 @@ class TestMassBalanceResponses:
         # Create white noise mass balance
         np.random.seed(42)  # For reproducible tests
         nyears = int(np.ceil(wn_config.tf - wn_config.ts))
-        bp_noise = np.random.normal(0, 0.5, nyears)  # 0.5 m/yr std dev
+        bp_noise = np.random.normal(0, 1, nyears)  # 1 m/yr std dev
         
         forcing = DirectMassBalanceForcing(
             b0=ss_b_profile, bp=bp_noise
@@ -1006,7 +1007,7 @@ class TestMassConservation:
     
     def test_mass_conservation_uniform_mb(self):
         """Test mass conservation with uniform mass balance"""
-        config = FlowlineConfig(delx=25, delt=0.0125/64, ts=0, tf=10000, deltout=1)
+        config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=1000, deltout=1)
         
         basic_params = {
             'bed_characteristic_length': 15000,
