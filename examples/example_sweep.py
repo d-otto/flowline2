@@ -17,13 +17,20 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import tempfile
 import os
+import numpy as np
 
 from flowline.sweep import FlowlineSweep
 
 def main():
     # --- 1. Define Sweep Configuration as a Python Dictionary ---
     # This configuration is similar to `sweep_config.yml` but defined in code.
-    # We will sweep over the melt factor `mu` and `elevation_drop`.
+    # We will sweep over the melt factor `mu` and the temperature lapse rate `gamma`.
+    # For mu, we'll use a range of 0.2 centered on 0.65, with a 0.05 step.
+    mu_values = np.round(np.arange(0.55, 0.75 + 0.01, 0.05), 2).tolist()
+    # For gamma, a range of 0.2 is not physically plausible. We'll use a
+    # range of 0.002 centered on 0.0065, with a 0.0005 step.
+    gamma_values = np.round(np.arange(0.0055, 0.0075 + 0.0001, 0.0005), 4).tolist()
+
     sweep_config = {
         'base_parameters': {
             'config': {
@@ -34,16 +41,16 @@ def main():
                 'function': 'flowline.geometry.create_uniform_slope',
                 'parameters': {
                     'bed_characteristic_length': 10000, 'domain_extent': 12000,
-                    'x_gr_points': 61, 'width': 1000
+                    'x_gr_points': 61, 'width': 1000, 'elevation_drop': 1000
                 },
                 'h_init_params': {'scale': 100, 'length': 5000}
             },
-            'forcing': {'mode': 'TP', 'T0': 8.0, 'P0': 2.0, 'gamma': 6.5e-3}
+            'forcing': {'mode': 'TP', 'T0': 8.0, 'P0': 2.0, 'gamma': 6.5e-3, 'mu': 0.65}
         },
         'sweep_parameters': {
-            'config.mu': [0.60, 0.65, 0.70, 0.75],          # 4 values
-            'geometry.parameters.elevation_drop': [900, 1100] # 2 values
-        } # Total runs = 4 * 2 = 8
+            'forcing.mu': mu_values,
+            'forcing.gamma': gamma_values
+        } # Total runs = 5 * 5 = 25
     }
 
     # --- 2. Set Up Temporary Config File and Output Directory ---
@@ -85,24 +92,73 @@ def main():
     print("\nCombined Dataset Structure:")
     print(ds)
 
-    # Create a plot showing final glacier length vs. the swept parameters.
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    # --- Plot 1: Length and Volume Trajectories ---
+    # Calculate ice volume for each run
+    # ds['w'] is 1D, so it will broadcast correctly with h(time, ..., x)
+    ice_volume_m3 = (ds['h'] * ds['w'] * ds.attrs['delx']).sum(dim='x')
+    ice_volume_km3 = ice_volume_m3 / 1e9
     
-    # We can use xarray's plotting capabilities to easily handle multi-dimensional data.
-    # Here, we plot final length for each 'mu' value, with different lines for 'elevation_drop'.
-    final_lengths = ds['edge'].isel(time=-1) / 1000 # Final length in km
+    # Create a facet grid for length trajectories
+    g_len = (ds['edge'] / 1000).plot.line(
+        x='time', col='forcing_gamma', hue='forcing_mu', col_wrap=3
+    )
+    g_len.fig.suptitle('Glacier Length Trajectories', y=1.03, fontsize=16)
+    g_len.set_titles("γ = {value:.4f}")
+    g_len.set_xlabels('Time (years)')
+    g_len.set_ylabels('Length (km)')
+    plt.tight_layout()
+    plot_path_len = output_dir / "sweep_plot_length_trajectories.png"
+    plt.savefig(plot_path_len, dpi=150)
+    print(f"\nLength trajectory plot saved to: {plot_path_len}")
+    plt.close(g_len.fig)
     
-    final_lengths.plot.line(x='config_mu', ax=ax)
+    # Create a facet grid for volume trajectories
+    g_vol = ice_volume_km3.plot.line(
+        x='time', col='forcing_gamma', hue='forcing_mu', col_wrap=3
+    )
+    g_vol.fig.suptitle('Glacier Volume Trajectories', y=1.03, fontsize=16)
+    g_vol.set_titles("γ = {value:.4f}")
+    g_vol.set_xlabels('Time (years)')
+    g_vol.set_ylabels('Volume (km³)')
+    plt.tight_layout()
+    plot_path_vol = output_dir / "sweep_plot_volume_trajectories.png"
+    plt.savefig(plot_path_vol, dpi=150)
+    print(f"Volume trajectory plot saved to: {plot_path_vol}")
+    plt.close(g_vol.fig)
+
+    # --- Plot 2: Sensitivity of Final State to Parameters ---
+    # Extract final length and volume
+    final_length_km = ds['edge'].isel(time=-1) / 1000
+    final_volume_km3 = ice_volume_km3.isel(time=-1)
     
-    ax.set_title('Final Glacier Length vs. Melt Factor (mu)', fontsize=16)
-    ax.set_xlabel('Melt Factor (mu)')
-    ax.set_ylabel('Final Length (km)')
-    ax.grid(True, alpha=0.3)
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig.suptitle('Sensitivity of Final Glacier State to Parameters', fontsize=16)
     
-    plot_path = output_dir / "sweep_results_plot.png"
-    plt.savefig(plot_path, dpi=150)
-    print(f"\nSweep results plot saved to: {plot_path}")
-    # plt.show()
+    # Plot final length sensitivity
+    final_length_km.plot.contourf(
+        ax=axes[0],
+        levels=10,
+        cbar_kwargs={'label': 'Final Length (km)'}
+    )
+    axes[0].set_title('Final Length Sensitivity')
+    axes[0].set_xlabel('Melt Factor (μ)')
+    axes[0].set_ylabel('Lapse Rate (γ)')
+    
+    # Plot final volume sensitivity
+    final_volume_km3.plot.contourf(
+        ax=axes[1],
+        levels=10,
+        cbar_kwargs={'label': 'Final Volume (km³)'}
+    )
+    axes[1].set_title('Final Volume Sensitivity')
+    axes[1].set_xlabel('Melt Factor (μ)')
+    axes[1].set_ylabel('Lapse Rate (γ)')
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plot_path_sensitivity = output_dir / "sweep_plot_sensitivity.png"
+    plt.savefig(plot_path_sensitivity, dpi=150)
+    print(f"Sensitivity plot saved to: {plot_path_sensitivity}")
+    plt.close(fig)
 
 if __name__ == "__main__":
     main()
