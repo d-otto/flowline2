@@ -870,7 +870,7 @@ class flowline2d:
         return sigL / sigdL
 
 
-@nb.njit(fastmath=False, parallel=True)
+@nb.njit(fastmath={"contract"})
 def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thick, n,k):
     Qp = np.zeros(x.size)  # Qp equals j+1/2 flux
     Qm = np.zeros(x.size)  # Qm equals j-1/2 flux
