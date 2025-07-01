@@ -1,0 +1,35 @@
+# Test configuration for a parameter sweep. Used for integration tests.
+# This is a minimal version of the main sweep_config.yml to ensure
+# tests run quickly.
+
+base_parameters:
+  config:
+    ts: 0
+    tf: 10 # Short run time for testing
+    delx: 100 # Coarser grid
+    delt: 0.0125/2 # Larger time step
+    deltout: 5.0
+    min_thick: 1.0
+  
+  geometry:
+    function: 'flowline.geometry.create_uniform_slope'
+    parameters:
+      bed_characteristic_length: 10000
+      domain_extent: 12000
+      x_gr_points: 61
+      width: 1000
+      elevation_drop: 1000
+    
+    h_init_params:
+      scale: 100
+      length: 5000
+
+  forcing:
+    mode: 'TP'
+    T0: 8.0
+    P0: 2.0
+    gamma: 6.5e-3
+
+# Sweep over a single parameter with two values for a quick test.
+sweep_parameters:
+  config.mu: [0.65, 0.70] # 2 runs
