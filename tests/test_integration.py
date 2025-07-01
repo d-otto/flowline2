@@ -12,24 +12,25 @@ def test_sweep_integration(tmp_path):
     project_root = Path(__file__).parent.parent
     test_config_path = project_root / "tests/test_sweep_config.yml"
     output_dir = tmp_path / "test_sweep_output"
-    run_sweep_script = project_root / "run_sweep.py"
-    
-    # 2. Run the sweep as a subprocess
+    # The entry point is now a module within the `cli` package
+    cli_script_module = "cli.run_sweep"
+
+    # 2. Run the sweep as a subprocess using the new click-based CLI
     cmd = [
-        sys.executable, str(run_sweep_script),
+        sys.executable, "-m", cli_script_module,
         str(test_config_path),
-        "--output_dir", str(output_dir),
+        "--output-dir", str(output_dir),
         "--workers", "2"
     ]
     
-    # The run_sweep script adds 'src' to sys.path, so it should be fine
-    # when run from the project root.
+    # Running from project root; pytest is configured with pythonpath="src"
+    # so the `cli` module should be found.
     result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=project_root)
     
     if result.returncode != 0:
         print("STDOUT:", result.stdout, file=sys.stdout)
         print("STDERR:", result.stderr, file=sys.stderr)
-        pytest.fail(f"run_sweep.py script failed with exit code {result.returncode}", pytrace=False)
+        pytest.fail(f"CLI script failed with exit code {result.returncode}", pytrace=False)
 
     # 3. Check outputs
     assert output_dir.exists()
