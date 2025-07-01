@@ -1,0 +1,82 @@
+from pathlib import Path
+import hashlib
+import json
+import numpy as np
+
+from .flowline2d import (FlowlineConfig, FlowlineGeometry, 
+                         TemperaturePrecipitationForcing, DirectMassBalanceForcing, 
+                         flowline2d)
+from .io import import_from_string
+
+def run_flowline_simulation(params_tuple):
+    """
+    Worker function executed by Dask.
+    Configures and runs a single flowline simulation.
+    """
+    run_idx, run_params, output_dir = params_tuple
+    
+    # Generate a unique hash for this parameter set for the filename
+    params_str = json.dumps(run_params, sort_keys=True)
+    params_hash = hashlib.md5(params_str.encode('utf-8')).hexdigest()[:10]
+    filename = f"run_{run_idx:04d}_{params_hash}.nc"
+    output_path = Path(output_dir) / filename
+
+    try:
+        # Separate params for different components
+        config_p = run_params.get('config', {})
+        geometry_p = run_params.get('geometry', {})
+        forcing_p = run_params.get('forcing', {})
+        
+        # Instantiate Config
+        config = FlowlineConfig(**config_p)
+        
+        # Instantiate Geometry from a specified function
+        geom_func = import_from_string(geometry_p['function'])
+        geom_func_params = geometry_p.get('parameters', {})
+        x_gr, zb_gr, w_geom = geom_func(**geom_func_params)
+        
+        # Handle initial thickness profile generation
+        x_init = x_gr
+        h_init_params = geometry_p.get('h_init_params')
+        profile_path = geometry_p.get('profile')
+
+        if h_init_params:
+            scale = h_init_params.get('scale', 100)
+            length = h_init_params.get('length', 5000)
+            h_init = np.maximum(0, scale * (1 - x_gr / length))
+        else:
+            h_init = None
+        
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_init, h_init=h_init, profile=profile_path)
+        
+        # Instantiate Forcing
+        forcing_mode = forcing_p.pop('mode', 'TP')
+        if forcing_mode == 'TP':
+            forcing = TemperaturePrecipitationForcing(ts=config.ts, tf=config.tf, **forcing_p)
+        elif forcing_mode == 'b':
+            forcing = DirectMassBalanceForcing(**forcing_p)
+        else:
+            raise ValueError(f"Unknown forcing mode: {forcing_mode}")
+
+        # Instantiate and run the model
+        model = flowline2d(config=config, geometry=geometry, forcing=forcing)
+        result = model.run()
+
+        # Save result to xarray with comprehensive metadata
+        ds = result.to_xarray()
+        
+        # Add all run parameters as a JSON string to attributes for full reproducibility
+        ds.attrs['run_parameters'] = json.dumps(run_params, indent=4)
+        
+        ds.to_netcdf(output_path)
+        
+        return str(output_path)
+
+    except Exception as e:
+        error_file = output_path.with_suffix('.error')
+        with open(error_file, 'w') as f:
+            import traceback
+            f.write(f"Error running simulation {run_idx}:\n")
+            f.write(f"Parameters:\n{json.dumps(run_params, indent=4)}\n\n")
+            f.write(traceback.format_exc())
+        return f"ERROR: See {error_file.name}"

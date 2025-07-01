@@ -1,0 +1,44 @@
+# Example configuration for a parameter sweep.
+
+# --- Base Parameters ---
+# These parameters are constant for all runs in the sweep, unless overridden
+# in the sweep_parameters section.
+base_parameters:
+  config:
+    ts: 0
+    tf: 500
+    delx: 50
+    delt: 0.0125/16
+    deltout: 5.0
+    min_thick: 1.0
+  
+  geometry:
+    function: 'tests.test_flowline2d.create_uniform_slope'
+    parameters:
+      bed_characteristic_length: 10000
+      domain_extent: 12000
+      x_gr_points: 61
+      width: 1000
+    
+    # Parameters for a simple linear initial thickness profile
+    h_init_params:
+      scale: 100
+      length: 5000
+
+    # To initialize from a steady state profile instead, comment out h_init_params
+    # and provide a path to a pickled result object:
+    # profile: 'test_qc_figures/test_cache/steady_state_uniform.pkl'
+
+  forcing:
+    mode: 'TP' # Can be 'TP' (TemperaturePrecipitation) or 'b' (DirectMassBalance)
+    T0: 8.0
+    P0: 2.0
+    gamma: 6.5e-3
+
+# --- Sweep Parameters ---
+# Define the parameters to sweep over. The script will generate a run for
+# every combination of the values in these lists.
+# Use dot notation to access nested parameters.
+sweep_parameters:
+  config.mu: [0.60, 0.65, 0.70]
+  geometry.parameters.elevation_drop: [900, 1000, 1100]

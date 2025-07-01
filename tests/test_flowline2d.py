@@ -37,6 +37,41 @@ from flowline.flowline2d import (
     FlowlineModelError, GeometryError, NumericalInstabilityError
 )
 
+# --- Standalone Geometry Creation Functions ---
+# These can be called by the parameter sweep script.
+
+def create_uniform_slope(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length):
+    """Create uniform slope bed profile"""
+    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
+    zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
+    w_geom = np.full_like(x_gr, width)
+    return x_gr, zb_gr, w_geom
+
+def create_concave_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation=-200):
+    """Create slightly concave bed profile"""
+    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
+    # Base uniform slope
+    zb_uniform = elevation_drop * (1 - x_gr / bed_characteristic_length)
+    # Add concave perturbation
+    perturb = perturbation * np.sin(np.pi * x_gr / bed_characteristic_length)**2
+    zb_gr = zb_uniform + perturb
+    w_geom = np.full_like(x_gr, width)
+    return x_gr, zb_gr, w_geom
+
+def create_convex_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation=200):
+    """Create slightly convex bed profile"""
+    # Same as concave but with positive perturbation
+    return create_concave_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation)
+
+def create_variable_width(domain_extent, x_gr_points, elevation_drop, bed_characteristic_length, w_head=2000, w_term=500):
+    """Create variable width profile"""
+    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
+    zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
+    # Width varies linearly
+    w_geom = w_head - (w_head - w_term) * (x_gr / bed_characteristic_length)
+    return x_gr, zb_gr, w_geom
+
+
 # Create output directory for QC figures
 QC_FIGURE_DIR = Path("test_qc_figures")
 QC_FIGURE_DIR.mkdir(exist_ok=True)
@@ -78,16 +113,14 @@ def ss_result_uniform():
     # Config for a long spin-up run
     ss_config = FlowlineConfig(ts=0, tf=1000, delx=25, delt=0.0125/16)
     
-    x_gr = np.linspace(0, GLACIER_PARAMS['domain_extent'], GLACIER_PARAMS['x_gr_points'])
-    
-    basic_params = {
-        'bed_characteristic_length': GLACIER_PARAMS['bed_characteristic_length'],
-        'x_gr': x_gr,
+    geom_params = {
+        'domain_extent': GLACIER_PARAMS['domain_extent'],
+        'x_gr_points': GLACIER_PARAMS['x_gr_points'],
         'elevation_drop': GLACIER_PARAMS['elevation_drop'],
-        'width': GLACIER_PARAMS['width']
+        'width': GLACIER_PARAMS['width'],
+        'bed_characteristic_length': GLACIER_PARAMS['bed_characteristic_length']
     }
-    
-    x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
+    x_gr, zb_gr, w_geom = create_uniform_slope(**geom_params)
     
     h_init = np.maximum(0, GLACIER_PARAMS['initial_thickness_scale'] * 
                         (1 - x_gr / GLACIER_PARAMS['initial_glacier_length']))
@@ -114,54 +147,17 @@ class TestGeometry:
     def basic_geometry_params(self):
         """Standard geometry parameters for testing"""
         domain_extent = 15000  # 15 km
-        x_gr = np.linspace(0, domain_extent, 41)  # 41 points for smooth interpolation
         return {
             'bed_characteristic_length': domain_extent,
-            'x_gr': x_gr,
+            'domain_extent': domain_extent,
+            'x_gr_points': 41,
             'elevation_drop': 1000,  # m
             'width': 1000,  # m
         }
     
-    def create_uniform_slope(self, params):
-        """Create uniform slope bed profile"""
-        x_gr = params['x_gr']
-        zb_gr = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
-        w_geom = np.full_like(x_gr, params['width'])
-        return x_gr, zb_gr, w_geom
-    
-    def create_concave_profile(self, params):
-        """Create slightly concave bed profile"""
-        x_gr = params['x_gr']
-        # Base uniform slope
-        zb_uniform = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
-        # Add concave perturbation (200m amplitude at midpoint)
-        perturbation = -200 * np.sin(np.pi * x_gr / params['bed_characteristic_length'])**2
-        zb_gr = zb_uniform + perturbation
-        w_geom = np.full_like(x_gr, params['width'])
-        return x_gr, zb_gr, w_geom
-    
-    def create_convex_profile(self, params):
-        """Create slightly convex bed profile"""
-        x_gr = params['x_gr']
-        # Base uniform slope
-        zb_uniform = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
-        # Add convex perturbation (200m amplitude at midpoint)
-        perturbation = 200 * np.sin(np.pi * x_gr / params['bed_characteristic_length'])**2
-        zb_gr = zb_uniform + perturbation
-        w_geom = np.full_like(x_gr, params['width'])
-        return x_gr, zb_gr, w_geom
-    
-    def create_variable_width(self, params):
-        """Create variable width profile"""
-        x_gr = params['x_gr']
-        zb_gr = params['elevation_drop'] * (1 - x_gr / params['bed_characteristic_length'])
-        # Width varies from 2km at head to 0.5km at terminus
-        w_geom = 2000 - 1500 * (x_gr / params['bed_characteristic_length'])
-        return x_gr, zb_gr, w_geom
-    
     def test_geometry_interpolation(self, basic_geometry_params):
         """Test that geometry interpolates correctly to model grid"""
-        x_gr, zb_gr, w_geom = self.create_uniform_slope(basic_geometry_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
         geometry.setup_grid(delx=25)
@@ -174,7 +170,7 @@ class TestGeometry:
     
     def test_gradient_calculation(self, basic_geometry_params):
         """Test bed slope calculation"""
-        x_gr, zb_gr, w_geom = self.create_uniform_slope(basic_geometry_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
         
         geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
         geometry.setup_grid(delx=50)
@@ -950,11 +946,12 @@ class TestBoundaryConditions:
         # Create geometry with very high mass balance at head
         basic_params = {
             'bed_characteristic_length': 15000,
-            'x_gr': np.linspace(0, 15000, 41),
+            'domain_extent': 15000,
+            'x_gr_points': 41,
             'elevation_drop': 500,
             'width': 1000
         }
-        x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_params)
         h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         # High accumulation at head
@@ -975,11 +972,12 @@ class TestBoundaryConditions:
         
         basic_params = {
             'bed_characteristic_length': 15000,
-            'x_gr': np.linspace(0, 15000, 41),
+            'domain_extent': 15000,
+            'x_gr_points': 41,
             'elevation_drop': 1000,
             'width': 1000
         }
-        x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_params)
         h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         # Strong ablation to test terminus retreat
@@ -1011,11 +1009,12 @@ class TestMassConservation:
         
         basic_params = {
             'bed_characteristic_length': 15000,
-            'x_gr': np.linspace(0, 15000, 41),
+            'domain_extent': 15000,
+            'x_gr_points': 41,
             'elevation_drop': 500,
             'width': 1000
         }
-        x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_params)
         h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         # Uniform mass balance
@@ -1148,11 +1147,12 @@ class TestOutputFormats:
         
         basic_params = {
             'bed_characteristic_length': 15000,
-            'x_gr': np.linspace(0, 15000, 41),
+            'domain_extent': 15000,
+            'x_gr_points': 41,
             'elevation_drop': 200,
             'width': 500
         }
-        x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_params)
         h_init = np.maximum(0, 50 * (1 - x_gr / 10000))
         
         forcing = DirectMassBalanceForcing(b0=0.5)
@@ -1225,11 +1225,13 @@ class TestFeatures:
         
         basic_params = {
             'bed_characteristic_length': 15000,
-            'x_gr': np.linspace(0, 15000, 41),
+            'domain_extent': 15000,
+            'x_gr_points': 41,
             'elevation_drop': 500,
-            'width': 1000  # This will be overridden
+            'w_head': 2000,
+            'w_term': 500
         }
-        x_gr, zb_gr, w_geom = TestGeometry().create_variable_width(basic_params)
+        x_gr, zb_gr, w_geom = create_variable_width(**basic_params)
         h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         forcing = DirectMassBalanceForcing(b0=0)
@@ -1250,11 +1252,12 @@ class TestFeatures:
         
         basic_params = {
             'bed_characteristic_length': 15000,
-            'x_gr': np.linspace(0, 15000, 41),
+            'domain_extent': 15000,
+            'x_gr_points': 41,
             'elevation_drop': 300,
             'width': 800
         }
-        x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_params)
         h_init = np.maximum(0, 80 * (1 - x_gr / 10000))
         
         # PDD forcing parameters
@@ -1360,12 +1363,13 @@ class TestErrorHandling:
         config = FlowlineConfig(delx=25, delt=0.0125/16, ts=0, tf=5, deltout=1)
         
         basic_params = {
-            'length': 10000,
-            'x_gr': np.linspace(0, 20000, 41),
+            'bed_characteristic_length': 10000,
+            'domain_extent': 20000,
+            'x_gr_points': 41,
             'elevation_drop': 200,
             'width': 500
         }
-        x_gr, zb_gr, w_geom = TestGeometry().create_uniform_slope(basic_params)
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_params)
         h_init = np.maximum(0, 50 * (1 - x_gr / 8000))
         
         # Extremely negative mass balance
