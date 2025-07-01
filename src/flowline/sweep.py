@@ -7,6 +7,7 @@ from pathlib import Path
 from copy import deepcopy
 import itertools
 import traceback
+import math
 
 import dask
 from dask.distributed import Client, LocalCluster
@@ -133,8 +134,35 @@ class FlowlineSweep:
                 # Filenames include a zero-padded index, so alphabetical sort works.
                 sorted_runs = sorted(successful_runs)
                 concat_dims = [d.replace('.', '_') for d in sweep_dims]
+
+                # For nested combine, xarray expects a nested list of files that
+                # matches the structure of the swept dimensions.
+                sweep_value_lists = [self.config['sweep_parameters'][key] for key in sweep_dims]
+                shape = [len(v) for v in sweep_value_lists]
+
+                def _nest_list(flat_list, shape_dims):
+                    """Recursively nest a flat list to a given shape."""
+                    if not shape_dims:
+                        return flat_list[0]
+                    n = shape_dims[0]
+                    chunk_size = len(flat_list) // n
+                    return [_nest_list(flat_list[i*chunk_size:(i+1)*chunk_size], shape_dims[1:]) for i in range(n)]
+
+                # Only nest if there is more than one dimension to sweep over.
+                # If some runs failed, we can't reshape into a hyper-rectangle,
+                # so we fall back to a 1D concatenation and warn the user.
+                expected_runs = math.prod(shape) if shape else 0
+                if len(shape) > 1 and len(sorted_runs) == expected_runs:
+                    runs_for_xr = _nest_list(sorted_runs, shape)
+                else:
+                    if len(shape) > 1 and len(sorted_runs) != expected_runs:
+                        print(f"\nWarning: Number of successful runs ({len(sorted_runs)}) does not match expected "
+                              f"from sweep parameters ({expected_runs}). Combining as a 1D list, which may "
+                              "produce incorrect dimensions or fail if sweep dimensions are not orthogonal.")
+                    runs_for_xr = sorted_runs
+
                 combined_ds = xr.open_mfdataset(
-                    sorted_runs,
+                    runs_for_xr,
                     preprocess=preprocess_ds,
                     combine='nested',
                     concat_dim=concat_dims
