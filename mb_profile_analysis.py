@@ -372,8 +372,8 @@ class GlacierELAAnalysis:
 
         # Plot 4: Overlapping Contours of mu and gamma
         ax = axes[1,1]
-        T0_vals = np.linspace(ela_data.T0.min(), ela_data.T0.max(), 50)
-        ELA_vals = np.linspace(ela_data.min(), ela_data.max(), 50)
+        T0_vals = np.linspace(ela_data.T0.min().item(), ela_data.T0.max().item(), 50)
+        ELA_vals = np.linspace(ela_data.min().item(), ela_data.max().item(), 50)
         T0_mesh, ELA_mesh = np.meshgrid(T0_vals, ELA_vals)
 
         # Plot contours of constant gamma
