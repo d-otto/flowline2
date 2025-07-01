@@ -237,234 +237,111 @@ class GlacierELAAnalysis:
             ax.invert_xaxis()  # Convention: highest elevations on the left
             
         plt.tight_layout()
-    def plot_ela_path_integrals(self, figsize=(15, 8), target_ela=2500, P0=1000, temp_change=5):
+    def plot_ela_warming_response(self, target_ela=2500, P0=1000, temp_change=1.0, n_steps=20, figsize=(12, 8)):
         """
-        Create ELA path integral visualization showing linear vs nonlinear scaling
-        
+        Analyzes and visualizes glacier ELA and mass balance response to a uniform temperature change.
+
         Parameters:
         -----------
         target_ela : float
-            Target initial ELA (m) for all parameter combinations
+            Target initial ELA (m) for all parameter combinations.
         P0 : float  
-            Winter accumulation (mm)
+            Winter accumulation (mm).
         temp_change : float
-            Temperature change to analyze (°C)
+            Total temperature change to analyze (°C).
+        n_steps : int
+            Number of steps to model the temperature change.
         """
-        
+        if self.dataset is None:
+            raise ValueError("Must run create_parameter_sweep first")
+
         P0_m = P0 / 1000  # Convert to meters
-        
-        # Define four parameter combinations that give the same initial ELA
-        # Two with same gamma (linear scaling), two with same mu (nonlinear scaling)
+        elevations = self.dataset.elevation.values
+
         combinations = [
             {'gamma': 6.0, 'mu': 0.5, 'label': 'γ=6, μ=0.5', 'style': '-', 'color': 'blue'},
-            {'gamma': 6.0, 'mu': 1.0, 'label': 'γ=6, μ=1.0', 'style': '--', 'color': 'blue'},
+            {'gamma': 6.0, 'mu': 1.0, 'label': 'γ=6, μ=1.0', 'style': '--', 'color': 'dodgerblue'},
             {'gamma': 5.0, 'mu': 0.75, 'label': 'γ=5, μ=0.75', 'style': '-', 'color': 'red'},
-            {'gamma': 7.0, 'mu': 0.75, 'label': 'γ=7, μ=0.75', 'style': '--', 'color': 'red'}
+            {'gamma': 7.0, 'mu': 0.75, 'label': 'γ=7, μ=0.75', 'style': '--', 'color': 'indianred'}
         ]
-        
-        # Calculate initial T0 for each combination to achieve target_ela
+
         for combo in combinations:
-            gamma_m = combo['gamma'] / 1000  # Convert to °C/m
-            # From ELA = T0/gamma - P0/(mu*gamma), solve for T0:
-            # T0 = gamma * (ELA + P0/(mu*gamma)) = gamma*ELA + P0/mu
+            gamma_m = combo['gamma'] / 1000
             combo['T0_initial'] = gamma_m * target_ela + P0_m / combo['mu']
-        
-        # Create figure with 3 panels
-        fig = plt.figure(figsize=figsize)
-        gs = fig.add_gridspec(2, 3, height_ratios=[1, 1], width_ratios=[2, 1, 1])
-        
-        # Main panel: Temperature vs ELA paths
-        ax_main = fig.add_subplot(gs[:, 0])
-        
+
+        # Create figures
+        fig_main, ax_main = plt.subplots(figsize=figsize)
+        fig_profiles, axes_profiles = plt.subplots(1, 2, figsize=(15, 6), sharey=True)
+        ax_const_gamma, ax_const_mu = axes_profiles
+
         for combo in combinations:
             gamma_m = combo['gamma'] / 1000
-            T0_range = np.linspace(combo['T0_initial'], 
-                                 combo['T0_initial'] + temp_change, 50)
+            T0_initial = combo['T0_initial']
             
-            # Calculate ELA for each temperature
-            ela_path = T0_range / gamma_m - P0_m / (combo['mu'] * gamma_m)
+            delta_T_path = np.linspace(0, temp_change, n_steps)
+            ela_path = []
+            delta_B_path = []
+
+            b_initial = self.calc_mass_balance(elevations, P0, T0_initial, combo['gamma'], combo['mu'])
+
+            for delta_T in delta_T_path:
+                T0_current = T0_initial + delta_T
+                ela_current = self.calc_ela(P0, T0_current, combo['gamma'], combo['mu'])
+                ela_path.append(ela_current)
+
+                b_current = self.calc_mass_balance(elevations, P0, T0_current, combo['gamma'], combo['mu'])
+                delta_B = np.trapz(b_current - b_initial, elevations)
+                delta_B_path.append(delta_B)
+
+            ax_main.plot(delta_B_path, ela_path, label=combo['label'], color=combo['color'], linestyle=combo['style'], linewidth=2.5)
             
-            ax_main.plot(T0_range, ela_path, 
-                        linestyle=combo['style'], 
-                        color=combo['color'],
-                        linewidth=2.5,
-                        label=combo['label'])
-            
-            # Mark initial and final points
-            ax_main.plot(combo['T0_initial'], target_ela, 'o', 
-                        color=combo['color'], markersize=8)
-            ax_main.plot(T0_range[-1], ela_path[-1], 's', 
-                        color=combo['color'], markersize=8)
+            # Plot initial and final points
+            ax_main.plot(delta_B_path[0], ela_path[0], 'o', color=combo['color'], markersize=8)
+            ax_main.plot(delta_B_path[-1], ela_path[-1], 's', color=combo['color'], markersize=8)
+
+            # Plot mass balance profiles
+            b_final = self.calc_mass_balance(elevations, P0, T0_initial + temp_change, combo['gamma'], combo['mu'])
+            if combo['mu'] == 0.75: # Constant mu cases
+                ax_const_mu.plot(b_initial, elevations, color=combo['color'], linestyle=':', label=f"Initial {combo['label']}")
+                ax_const_mu.plot(b_final, elevations, color=combo['color'], linestyle=combo['style'], label=f"Final {combo['label']}")
+                ax_const_mu.fill_betweenx(elevations, b_initial, b_final, color=combo['color'], alpha=0.1)
+            else: # Constant gamma cases
+                ax_const_gamma.plot(b_initial, elevations, color=combo['color'], linestyle=':', label=f"Initial {combo['label']}")
+                ax_const_gamma.plot(b_final, elevations, color=combo['color'], linestyle=combo['style'], label=f"Final {combo['label']}")
+                ax_const_gamma.fill_betweenx(elevations, b_initial, b_final, color=combo['color'], alpha=0.2)
         
-        ax_main.set_xlabel('Sea Level Temperature (T₀, °C)', fontsize=12)
+        # Finalize main plot
+        ax_main.set_xlabel('Change in Integrated Mass Balance Profile (m²/yr)', fontsize=12)
         ax_main.set_ylabel('ELA (m)', fontsize=12)
-        ax_main.set_title(f'ELA Paths for +{temp_change}°C Temperature Change\n' + 
-                         'Same γ = Linear Scaling (blue), Same μ = Nonlinear Scaling (red→red)', 
-                         fontsize=14, pad=20)
-        ax_main.legend(loc='best')
-        ax_main.grid(True, alpha=0.3)
-        
-        # Add annotation about the area under curves
-        ax_main.text(0.02, 0.98, 
-                    'Area under curves:\n• Same γ: scales linearly\n• Same μ: scales nonlinearly',
-                    transform=ax_main.transAxes, fontsize=10, 
-                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-        
-        # Panel 2: Contours with constant gamma (showing linear scaling)
-        ax_gamma = fig.add_subplot(gs[0, 1])
-        gamma_fixed = 6.0
-        gamma_m = gamma_fixed / 1000
-        
-        # Create temperature and mu ranges for contours
-        T0_contour = np.linspace(10, 25, 30)
-        mu_contour = np.linspace(0.3, 1.5, 30)
-        T0_mesh, mu_mesh = np.meshgrid(T0_contour, mu_contour)
-        
-        # Calculate ELA for contours
-        ela_contour = T0_mesh / gamma_m - P0_m / (mu_mesh * gamma_m)
-        
-        contour_levels = np.arange(1500, 4000, 100)
-        cs1 = ax_gamma.contour(T0_mesh, mu_mesh, ela_contour, levels=contour_levels, colors='gray', alpha=0.6)
-        ax_gamma.clabel(cs1, inline=True, fontsize=8, fmt='%d m')
-        
-        # Highlight the specific combinations used
-        for combo in combinations:
-            if combo['gamma'] == gamma_fixed:
-                ax_gamma.plot(combo['T0_initial'], combo['mu'], 'o', 
-                            color=combo['color'], markersize=10, markeredgecolor='black')
-                ax_gamma.text(combo['T0_initial'], combo['mu'] + 0.05, combo['label'], 
-                            ha='center', fontsize=9, fontweight='bold')
-        
-        ax_gamma.set_xlabel('T₀ (°C)')
-        ax_gamma.set_ylabel('Melt Factor (μ)')
-        ax_gamma.set_title(f'ELA Contours\nγ = {gamma_fixed}°C/km (constant)', fontsize=11)
-        ax_gamma.grid(True, alpha=0.3)
-        
-        # Panel 3: Contours with constant mu (showing nonlinear scaling)
-        ax_mu = fig.add_subplot(gs[1, 1])
-        mu_fixed = 0.75
-        
-        # Create temperature and gamma ranges for contours
-        gamma_contour = np.linspace(4, 10, 30)
-        T0_mesh, gamma_mesh = np.meshgrid(T0_contour, gamma_contour)
-        gamma_mesh_m = gamma_mesh / 1000
-        
-        # Calculate ELA for contours
-        ela_contour = T0_mesh / gamma_mesh_m - P0_m / (mu_fixed * gamma_mesh_m)
-        
-        cs2 = ax_mu.contour(T0_mesh, gamma_mesh, ela_contour, levels=contour_levels, colors='gray', alpha=0.6)
-        ax_mu.clabel(cs2, inline=True, fontsize=8, fmt='%d m')
-        
-        # Show reference combinations (interpolated to mu_fixed)
-        for combo in combinations:
-            # Calculate what T0 would be for this gamma with mu_fixed
-            gamma_m = combo['gamma'] / 1000
-            T0_equiv = gamma_m * target_ela + P0_m / mu_fixed
-            ax_mu.plot(T0_equiv, combo['gamma'], 's', 
-                      color=combo['color'], markersize=8, markeredgecolor='black', alpha=0.7)
-        
-        ax_mu.set_xlabel('T₀ (°C)')
-        ax_mu.set_ylabel('Lapse Rate (γ, °C/km)')
-        ax_mu.set_title(f'ELA Contours\nμ = {mu_fixed} (constant)', fontsize=11)
-        ax_mu.grid(True, alpha=0.3)
-        
-        # Panel 4: Phase space diagram
-        ax_phase = fig.add_subplot(gs[0, 2])
-        
-        # Show the four combinations in parameter space
-        gammas = [combo['gamma'] for combo in combinations]
-        mus = [combo['mu'] for combo in combinations]
-        colors = [combo['color'] for combo in combinations]
-        
-        scatter = ax_phase.scatter(mus, gammas, c=colors, s=100, edgecolors='black', linewidths=2)
-        
-        # Add labels
-        for i, combo in enumerate(combinations):
-            ax_phase.annotate(f"γ={combo['gamma']}\nμ={combo['mu']}", 
-                            (combo['mu'], combo['gamma']), 
-                            xytext=(5, 5), textcoords='offset points', 
-                            fontsize=9, ha='left')
-        
-        ax_phase.set_xlabel('Melt Factor (μ)')
-        ax_phase.set_ylabel('Lapse Rate (γ, °C/km)')
-        ax_phase.set_title('Parameter Space\n(Same Initial ELA)', fontsize=11)
-        ax_phase.grid(True, alpha=0.3)
-        
-        # Panel 5: Area under curves comparison
-        ax_area = fig.add_subplot(gs[1, 2])
-        
-        # Calculate areas under the ELA paths (numerical integration)
-        areas = []
-        labels = []
-        colors_area = []
-        
-        for combo in combinations:
-            gamma_m = combo['gamma'] / 1000
-            T0_range = np.linspace(combo['T0_initial'], 
-                                 combo['T0_initial'] + temp_change, 50)
-            ela_path = T0_range / gamma_m - P0_m / (combo['mu'] * gamma_m)
-            
-            # Calculate area using trapezoidal rule
-            area = np.trapz(ela_path, T0_range)
-            areas.append(area)
-            labels.append(f"γ={combo['gamma']}\nμ={combo['mu']}")
-            colors_area.append(combo['color'])
-        
-        bars = ax_area.bar(range(len(areas)), areas, color=colors_area, alpha=0.7, edgecolor='black')
-        ax_area.set_xticks(range(len(areas)))
-        ax_area.set_xticklabels(labels, fontsize=9)
-        ax_area.set_ylabel('Area under ELA path')
-        ax_area.set_title('Path Integral\nComparison', fontsize=11)
-        ax_area.grid(True, alpha=0.3, axis='y')
-        
-        # Add value labels on bars
-        for i, (bar, area) in enumerate(zip(bars, areas)):
-            ax_area.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(areas)*0.01,
-                        f'{area:.0f}', ha='center', va='bottom', fontsize=9, fontweight='bold')
-        
-        plt.tight_layout()
-        return fig
+        ax_main.set_title(f'ELA Response to +{temp_change}°C Warming', fontsize=14)
+        ax_main.legend()
+        ax_main.grid(True, alpha=0.4)
+
+        # Finalize profile plots
+        for ax in axes_profiles:
+            ax.axvline(0, color='black', linestyle='--', alpha=0.7)
+            ax.set_xlabel('Mass Balance (m w.e./yr)')
+            ax.set_ylabel('Elevation (m)')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        ax_const_gamma.set_title('Mass Balance Profiles (Constant γ)')
+        ax_const_mu.set_title('Mass Balance Profiles (Constant μ)')
+        fig_profiles.tight_layout()
+
+        return fig_main, fig_profiles
     
-    def plot_ela_sensitivity(self, figsize=(12, 10)):
+    def plot_ela_sensitivity(self, figsize=(12, 12)):
         """Create comprehensive ELA sensitivity plots"""
         
         if self.ela_dataset is None:
             raise ValueError("Must run create_parameter_sweep first")
             
-        fig, axes = plt.subplots(2, 3, figsize=figsize)
-        
-        # Plot 1: ELA vs T0 for different lapse rates
-        ax = axes[0,0]
+        fig, axes = plt.subplots(2, 2, figsize=figsize)
         ela_data = self.ela_dataset.ELA
-        gamma_values = ela_data.gamma.values[::2]  # Every 2nd value
-        colors = cm.viridis(np.linspace(0, 1, len(gamma_values)))
-        for i, gamma in enumerate(gamma_values):
-            ela_slice = ela_data.sel(gamma=gamma).mean(dim='mu')
-            ax.plot(ela_data.T0, ela_slice, label=f'γ={gamma:.1f}°C/km', color=colors[i])
-        ax.set_xlabel('Sea Level Temperature (T₀, °C)')
-        ax.set_ylabel('ELA (m)')
-        ax.set_title('ELA Sensitivity: Temperature vs Lapse Rate')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        # Plot 2: ELA vs T0 for different melt factors
-        ax = axes[0,1]
-        mu_values = ela_data.mu.values[::5]  # Every 5th value
-        colors = cm.plasma(np.linspace(0, 1, len(mu_values)))
-        for i, mu in enumerate(mu_values):
-            ela_slice = ela_data.sel(mu=mu, method='nearest').mean(dim='gamma')
-            ax.plot(ela_data.T0, ela_slice, label=f'μ={mu:.2f}', color=colors[i])
-        ax.set_xlabel('Sea Level Temperature (T₀, °C)')
-        ax.set_ylabel('ELA (m)')
-        ax.set_title('ELA Sensitivity: Temperature vs Melt Factor')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        # Hide the third panel in top row
-        axes[0,2].set_visible(False)
-        
-        # Plot 4: 2D heatmap ELA vs mu and gamma
-        ax = axes[1,0]
+        P0_m = self.ela_dataset.P0.item() / 1000
+
+        # Plot 1: 2D heatmap ELA vs mu and gamma
+        ax = axes[0,0]
         ela_2d = ela_data.mean(dim='T0')
         X, Y = np.meshgrid(ela_2d.mu.values, ela_2d.gamma.values)
         im1 = ax.contourf(X, Y, ela_2d.values.T, levels=20, cmap='viridis')
@@ -473,8 +350,8 @@ class GlacierELAAnalysis:
         ax.set_title('ELA: μ vs γ (avg T₀)')
         plt.colorbar(im1, ax=ax, label='ELA (m)')
         
-        # Plot 5: 2D heatmap ELA vs T0 and gamma
-        ax = axes[1,1]
+        # Plot 2: 2D heatmap ELA vs T0 and gamma
+        ax = axes[0,1]
         ela_2d = ela_data.mean(dim='mu')
         X, Y = np.meshgrid(ela_2d.T0.values, ela_2d.gamma.values)
         im2 = ax.contourf(X, Y, ela_2d.values, levels=20, cmap='plasma')
@@ -483,8 +360,8 @@ class GlacierELAAnalysis:
         ax.set_title('ELA: T₀ vs γ (avg μ)')
         plt.colorbar(im2, ax=ax, label='ELA (m)')
         
-        # Plot 6: 2D heatmap ELA vs T0 and mu
-        ax = axes[1,2]
+        # Plot 3: 2D heatmap ELA vs T0 and mu
+        ax = axes[1,0]
         ela_2d = ela_data.mean(dim='gamma')
         X, Y = np.meshgrid(ela_2d.T0.values, ela_2d.mu.values)
         im3 = ax.contourf(X, Y, ela_2d.values, levels=20, cmap='coolwarm')
@@ -492,6 +369,38 @@ class GlacierELAAnalysis:
         ax.set_ylabel('Melt Factor (μ)')
         ax.set_title('ELA: T₀ vs μ (avg γ)')
         plt.colorbar(im3, ax=ax, label='ELA (m)')
+
+        # Plot 4: Overlapping Contours of mu and gamma
+        ax = axes[1,1]
+        T0_vals = np.linspace(ela_data.T0.min(), ela_data.T0.max(), 50)
+        ELA_vals = np.linspace(ela_data.min(), ela_data.max(), 50)
+        T0_mesh, ELA_mesh = np.meshgrid(T0_vals, ELA_vals)
+
+        # Plot contours of constant gamma
+        gamma_contour_vals = np.arange(4, 11, 1.0)
+        for gamma in gamma_contour_vals:
+            gamma_m = gamma / 1000
+            with np.errstate(divide='ignore', invalid='ignore'):
+                mu_iso = P0_m / (T0_mesh - ELA_mesh * gamma_m)
+            mu_iso[mu_iso < 0] = np.nan
+            cs_gamma = ax.contour(T0_mesh, ELA_mesh, mu_iso, levels=[0.5, 1.0, 1.5], linestyles='--', cmap='winter')
+            ax.clabel(cs_gamma, inline=True, fontsize=8, fmt=f'γ={gamma:.0f}, μ=%1.1f')
+        
+        # Plot contours of constant mu
+        mu_contour_vals = np.arange(0.4, 1.5, 0.2)
+        for mu in mu_contour_vals:
+            with np.errstate(divide='ignore', invalid='ignore'):
+                gamma_iso_m = (T0_mesh - P0_m/mu) / ELA_mesh
+            gamma_iso = gamma_iso_m * 1000
+            gamma_iso[gamma_iso < 0] = np.nan
+            cs_mu = ax.contour(T0_mesh, ELA_mesh, gamma_iso, levels=[5, 7, 9], linestyles='-', cmap='autumn')
+            ax.clabel(cs_mu, inline=True, fontsize=8, fmt=f'μ={mu:.1f}, γ=%1.0f')
+
+        ax.set_xlabel('Sea Level Temperature (T₀, °C)')
+        ax.set_ylabel('ELA (m)')
+        ax.set_title('ELA vs T₀ (Contours of μ and γ)')
+        ax.set_ylim(1000, 4500)
+        ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
         return fig
@@ -510,10 +419,6 @@ class GlacierELAAnalysis:
         if fixed_value is None:
             if fixed_param == 'T0':
                 fixed_value = ela_data.T0.values[len(ela_data.T0)//2]
-            elif fixed_param == 'mu':
-                fixed_value = ela_data.mu.values[len(ela_data.mu)//2]
-            elif fixed_param == 'gamma':
-                fixed_value = ela_data.gamma.values[len(ela_data.gamma)//2]
             elif fixed_param == 'ELA':
                 fixed_value = float(np.median(ela_data.values))  # Use median ELA value
         
@@ -528,27 +433,11 @@ class GlacierELAAnalysis:
             ax.set_ylabel('Lapse Rate (γ, °C/km)')
             ax.set_zlabel('ELA (m)')
             title = f'ELA Surface (T₀ = {fixed_value:.1f}°C)'
+            surf = ax.plot_surface(X, Y, Z, cmap='viridis', alpha=0.8)
+            plt.colorbar(surf, ax=ax, shrink=0.5, label='ELA (m)')
             
-        elif fixed_param == 'mu':
-            ela_slice = ela_data.sel(mu=fixed_value, method='nearest')
-            X, Y = np.meshgrid(ela_slice.gamma.values, ela_slice.T0.values)
-            Z = ela_slice.values.T
-            ax.set_xlabel('Lapse Rate (γ, °C/km)')
-            ax.set_ylabel('Sea Level Temperature (T₀, °C)')
-            ax.set_zlabel('ELA (m)')
-            title = f'ELA Surface (μ = {fixed_value:.2f})'
-            
-        elif fixed_param == 'gamma':
-            ela_slice = ela_data.sel(gamma=fixed_value, method='nearest')
-            X, Y = np.meshgrid(ela_slice.mu.values, ela_slice.T0.values)
-            Z = ela_slice.values.T
-            ax.set_xlabel('Melt Factor (μ)')
-            ax.set_ylabel('Sea Level Temperature (T₀, °C)')
-            ax.set_zlabel('ELA (m)')
-            title = f'ELA Surface (γ = {fixed_value:.1f}°C/km)'
-        
         elif fixed_param == 'ELA':
-            from scipy.interpolate import interp1d, griddata
+            from scipy.interpolate import griddata
             
             # Arrays to store isosurface points
             mu_iso = []
@@ -559,22 +448,18 @@ class GlacierELAAnalysis:
             for i, mu_val in enumerate(ela_data.mu.values):
                 for j, gamma_val in enumerate(ela_data.gamma.values):
                     # Get ELA values along T0 dimension
-                    ela_slice = ela_data[i, j, :].values
+                    ela_slice = ela_data.sel(mu=mu_val, gamma=gamma_val).values
                     T0_vals = ela_data.T0.values
                     
                     # Check if target ELA is within the range
-                    if ela_slice.min() <= fixed_value <= ela_slice.max():
+                    if np.nanmin(ela_slice) <= fixed_value <= np.nanmax(ela_slice):
                         # Interpolate to find exact T0 for target ELA
-                        try:
-                            f = interp1d(ela_slice, T0_vals, kind='linear', bounds_error=False)
-                            T0_interp = f(fixed_value)
-                            
-                            if not np.isnan(T0_interp):
-                                mu_iso.append(mu_val)
-                                gamma_iso.append(gamma_val)
-                                T0_iso.append(T0_interp)
-                        except:
-                            continue
+                        T0_interp = np.interp(fixed_value, ela_slice, T0_vals)
+                        
+                        if not np.isnan(T0_interp):
+                            mu_iso.append(mu_val)
+                            gamma_iso.append(gamma_val)
+                            T0_iso.append(T0_interp)
             
             if len(mu_iso) < 4:
                 raise ValueError(f"Not enough points found for ELA = {fixed_value}m surface")
@@ -585,8 +470,8 @@ class GlacierELAAnalysis:
             T0_iso = np.array(T0_iso)
             
             # Create regular grid and interpolate
-            mu_grid = np.linspace(mu_iso.min(), mu_iso.max(), 20)
-            gamma_grid = np.linspace(gamma_iso.min(), gamma_iso.max(), 15)
+            mu_grid = np.linspace(mu_iso.min(), mu_iso.max(), 30)
+            gamma_grid = np.linspace(gamma_iso.min(), gamma_iso.max(), 30)
             MU_grid, GAMMA_grid = np.meshgrid(mu_grid, gamma_grid)
             
             points = np.column_stack([mu_iso, gamma_iso])
@@ -600,12 +485,57 @@ class GlacierELAAnalysis:
             ax.set_ylabel('Lapse Rate (γ, °C/km)')
             ax.set_zlabel('Sea Level Temperature (T₀, °C)')
             title = f'Parameter Space for ELA = {fixed_value:.0f}m'
+            surf = ax.plot_surface(X, Y, Z, cmap='viridis', alpha=0.8)
+            plt.colorbar(surf, ax=ax, shrink=0.5, label='T₀ (°C)')
         
-        surf = ax.plot_surface(X, Y, Z, cmap='viridis', alpha=0.8)
         ax.set_title(title)
+        return fig
+    
+    def plot_combined_3d_isolines(self, figsize=(12, 9)):
+        """
+        Creates a 3D plot with ELA isolines on planes of constant mu and gamma.
+        """
+        if self.ela_dataset is None:
+            raise ValueError("Must run create_parameter_sweep first")
+
+        from mpl_toolkits.mplot3d import Axes3D
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='3d')
+        ela_data = self.ela_dataset.ELA
+
+        # --- Plane of constant gamma ---
+        gamma_fixed = 6.0
+        ela_slice_gamma = ela_data.sel(gamma=gamma_fixed, method='nearest')
+        T0_mesh, mu_mesh = np.meshgrid(ela_slice_gamma.T0.values, ela_slice_gamma.mu.values)
+        Z = ela_slice_gamma.values.T
         
-        plt.colorbar(surf, ax=ax, shrink=0.5, label='ELA (m)')
+        cs1 = ax.contour(T0_mesh, mu_mesh, Z, zdir='z', offset=gamma_fixed, 
+                         levels=np.arange(1000, 5000, 500), cmap='winter')
+
+        # --- Plane of constant mu ---
+        mu_fixed = 0.75
+        ela_slice_mu = ela_data.sel(mu=mu_fixed, method='nearest')
+        T0_mesh, gamma_mesh = np.meshgrid(ela_slice_mu.T0.values, ela_slice_mu.gamma.values)
+        Z = ela_slice_mu.values
         
+        cs2 = ax.contour(T0_mesh, Z, gamma_mesh, zdir='y', offset=mu_fixed, 
+                         levels=np.arange(1000, 5000, 500), cmap='autumn')
+
+        ax.set_xlabel('Sea Level Temperature (T₀, °C)')
+        ax.set_ylabel('Melt Factor (μ)')
+        ax.set_zlabel('Lapse Rate (γ, °C/km)')
+        ax.set_title('ELA Isolines in Parameter Space')
+        
+        ax.set_xlim(ela_data.T0.min(), ela_data.T0.max())
+        ax.set_ylim(ela_data.mu.min(), ela_data.mu.max())
+        ax.set_zlim(ela_data.gamma.min(), ela_data.gamma.max())
+
+        # Dummy lines for legend
+        from matplotlib.lines import Line2D
+        legend_elements = [Line2D([0], [0], color='blue', lw=2, label=f'Constant γ = {gamma_fixed}°C/km'),
+                           Line2D([0], [0], color='red', lw=2, label=f'Constant μ = {mu_fixed}')]
+        ax.legend(handles=legend_elements)
+
         return fig
 
 # Example usage and demonstration
@@ -631,24 +561,20 @@ if __name__ == "__main__":
     fig2 = glacier_analysis.plot_ela_sensitivity()
     plt.show()
     
-    print("Creating 3D ELA surface...")
-    fig3 = glacier_analysis.plot_3d_ela_surface()
+    print("Creating 3D ELA surface (fixed T0)...")
+    fig3a = glacier_analysis.plot_3d_ela_surface(fixed_param="T0")
+    plt.show()
+
+    print("Creating combined 3D ELA isolines...")
+    fig3b = glacier_analysis.plot_combined_3d_isolines()
     plt.show()
     
-    fig3 = glacier_analysis.plot_3d_ela_surface(fixed_param="gamma")
+    print("Creating 3D ELA surface (fixed ELA)...")
+    fig3c = glacier_analysis.plot_3d_ela_surface(fixed_param="ELA")
     plt.show()
     
-    fig3 = glacier_analysis.plot_3d_ela_surface(fixed_param="mu")
-    plt.show()
-    
-    fig3 = glacier_analysis.plot_3d_ela_surface(fixed_param="ELA")
-    plt.show()
-    
-    fig3 = glacier_analysis.plot_3d_ela_surface()
-    plt.show()
-    
-    print("Creating 3D ELA surface...")
-    fig4 = glacier_analysis.plot_ela_path_integrals()
+    print("Creating ELA warming response analysis...")
+    fig4_main, fig4_profiles = glacier_analysis.plot_ela_warming_response()
     plt.show()
     
     # Print some statistics
