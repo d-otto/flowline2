@@ -129,9 +129,12 @@ class FlowlineSweep:
 
         try:
             if sweep_dims:
+                # Sort runs to ensure a predictable order for xarray's nested combine.
+                # Filenames include a zero-padded index, so alphabetical sort works.
+                sorted_runs = sorted(successful_runs)
                 concat_dims = [d.replace('.', '_') for d in sweep_dims]
                 combined_ds = xr.open_mfdataset(
-                    successful_runs,
+                    sorted_runs,
                     preprocess=preprocess_ds,
                     combine='nested',
                     concat_dim=concat_dims

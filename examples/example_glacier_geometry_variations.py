@@ -99,16 +99,21 @@ def main():
     print("All simulations complete.")
 
     # --- 5. Create Comparison Plots ---
-    fig, axes = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(10, 10))
     fig.suptitle("Glacier Geometry Initialization Comparison", fontsize=16)
+
+    # Get the computational grid from one of the results (they are all the same)
+    model_x = results['From Function (Wedge)'].x
+    model_zb = results['From Function (Wedge)'].zb
 
     # Plot 1: Initial ice thickness profiles
     ax = axes[0]
-    ax.plot(x_gr / 1000, zb_gr, 'k-', linewidth=2, label='Bedrock')
+    ax.plot(model_x / 1000, model_zb, 'k-', linewidth=2, label='Bedrock')
     for name, h0 in initial_profiles.items():
-        ax.plot(x_gr / 1000, zb_gr + h0, label=name, linestyle='--')
+        ax.plot(model_x / 1000, model_zb + h0, label=name, linestyle='--')
     ax.set_ylabel('Elevation (m)')
     ax.set_title('Initial Ice Thickness Profiles')
+    ax.set_xlabel('Distance (km)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     
@@ -116,7 +121,7 @@ def main():
     ax = axes[1]
     for name, res in results.items():
         ax.plot(res.t, res.edge / 1000, label=name)
-    ax.set_xlabel('Distance (km)')
+    ax.set_xlabel('Time (years)')
     ax.set_ylabel('Glacier Length (km)')
     ax.set_title('Length Evolution')
     ax.legend()
