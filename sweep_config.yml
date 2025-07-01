@@ -13,7 +13,7 @@ base_parameters:
     min_thick: 1.0
   
   geometry:
-    function: 'tests.test_flowline2d.create_uniform_slope'
+    function: 'flowline.geometry.create_uniform_slope'
     parameters:
       bed_characteristic_length: 10000
       domain_extent: 12000

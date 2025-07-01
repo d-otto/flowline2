@@ -3,9 +3,10 @@ import hashlib
 import json
 import numpy as np
 
-from .flowline2d import (FlowlineConfig, FlowlineGeometry, 
+from .flowline2d import (FlowlineConfig, 
                          TemperaturePrecipitationForcing, DirectMassBalanceForcing, 
                          flowline2d)
+from .geometry import FlowlineGeometry
 from .io import import_from_string
 
 def run_flowline_simulation(params_tuple):

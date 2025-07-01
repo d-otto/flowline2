@@ -32,44 +32,18 @@ import copy
 import sys
 sys.path.append('src')
 from flowline.flowline2d import (
-    flowline2d, FlowlineConfig, FlowlineGeometry, 
+    flowline2d, FlowlineConfig,
     TemperaturePrecipitationForcing, DirectMassBalanceForcing,
-    FlowlineModelError, GeometryError, NumericalInstabilityError
+    FlowlineModelError, NumericalInstabilityError
+)
+from flowline.geometry import (
+    FlowlineGeometry, GeometryError,
+    create_uniform_slope, create_concave_profile,
+    create_variable_width, create_convex_profile
 )
 
 # --- Standalone Geometry Creation Functions ---
 # These can be called by the parameter sweep script.
-
-def create_uniform_slope(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length):
-    """Create uniform slope bed profile"""
-    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
-    zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
-    w_geom = np.full_like(x_gr, width)
-    return x_gr, zb_gr, w_geom
-
-def create_concave_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation=-200):
-    """Create slightly concave bed profile"""
-    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
-    # Base uniform slope
-    zb_uniform = elevation_drop * (1 - x_gr / bed_characteristic_length)
-    # Add concave perturbation
-    perturb = perturbation * np.sin(np.pi * x_gr / bed_characteristic_length)**2
-    zb_gr = zb_uniform + perturb
-    w_geom = np.full_like(x_gr, width)
-    return x_gr, zb_gr, w_geom
-
-def create_convex_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation=200):
-    """Create slightly convex bed profile"""
-    # Same as concave but with positive perturbation
-    return create_concave_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation)
-
-def create_variable_width(domain_extent, x_gr_points, elevation_drop, bed_characteristic_length, w_head=2000, w_term=500):
-    """Create variable width profile"""
-    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
-    zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
-    # Width varies linearly
-    w_geom = w_head - (w_head - w_term) * (x_gr / bed_characteristic_length)
-    return x_gr, zb_gr, w_geom
 
 
 # Create output directory for QC figures
