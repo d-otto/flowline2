@@ -78,6 +78,41 @@ def calc_mass_balance(h, P0, T0, gamma, mu):
     
     return mass_balance
 
+def solve_ela_for_parameter(target_variable, target_value, P0, T0=None, gamma=None, mu=None, initial_guess=10):
+    """
+    Solves the ELA equation for a single unknown variable using a numerical solver.
+
+    This function finds the value of one parameter (e.g., T0) that results in a
+    specified Equilibrium Line Altitude (ELA), holding other parameters constant.
+
+    Parameters
+    ----------
+    target_variable : str
+        The name of the variable to solve for. Must be one of 'T0', 'gamma', 'mu', 'P0'.
+    target_value : float
+        The desired output value for the ELA.
+    P0, T0, gamma, mu : float, optional
+        Known values for the ELA equation parameters. The parameter corresponding
+        to `target_variable` should be set to None.
+    initial_guess : float, optional
+        Initial guess for the solver.
+
+    Returns
+    -------
+    float
+        The calculated value of the target_variable that satisfies the ELA equation.
+    """
+    # Define the root function for the solver. It calculates `calc_ela(...) - target_value`.
+    def root_function(x):
+        params = {'P0': P0, 'T0': T0, 'gamma': gamma, 'mu': mu}
+        params[target_variable] = x[0]
+        # The equation to solve is: calc_ela(...) - target_ela = 0
+        return calc_ela(P0=params['P0'], T0=params['T0'], gamma=params['gamma'], mu=params['mu']) - target_value
+
+    # Solve for the root
+    solution, = fsolve(root_function, [initial_guess])
+    return solution
+
 def create_parameter_sweep( 
                          elev_range=(0, 2000, 25),
                          mu_range=(0.2, 1.4, 0.025), 
