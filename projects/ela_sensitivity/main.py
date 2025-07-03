@@ -197,16 +197,28 @@ def plot_ela_sensitivity(ela_dataset, figsize=(12, 12)):
     ela_data = ela_dataset.ELA
     P0_m = ela_dataset.P0.item() / 1000
 
-    # Plot 1: 2D heatmap ELA vs mu and gamma
+    # Plot 1: T0 for a constant ELA
     ax = axes[0,0]
-    ela_2d = ela_data.where((ela_data > 995.) & (ela_data <= 1005.), drop=True)
-    print(ela_2d)
-    X, Y = np.meshgrid(ela_2d.mu.values, ela_2d.values)
-    im1 = ax.contourf(X, Y, ela_2d.T0.T, levels=20, cmap='viridis')
+    target_ela = 1000
+    ela_tolerance = 25
+    ela_min = target_ela - ela_tolerance
+    ela_max = target_ela + ela_tolerance
+
+    # Create a DataArray with T0 values, shaped like ela_data
+    t0_values = np.broadcast_to(ela_data.T0.values, ela_data.shape)
+    t0_data_array = xr.DataArray(t0_values, coords=ela_data.coords, dims=ela_data.dims)
+
+    # Filter for ELA range and calculate mean T0
+    t0_for_ela_range = t0_data_array.where((ela_data >= ela_min) & (ela_data <= ela_max))
+    mean_t0 = t0_for_ela_range.mean(dim='T0')
+    
+    # Plotting
+    X, Y = np.meshgrid(mean_t0.mu.values, mean_t0.gamma.values)
+    im1 = ax.contourf(X, Y, mean_t0.T, levels=20, cmap='viridis')
     ax.set_xlabel('Melt Factor (μ)')
     ax.set_ylabel('Lapse Rate (γ, °C/km)')
-    ax.set_title('ELA: μ vs γ (avg T₀)')
-    plt.colorbar(im1, ax=ax, label='ELA (m)')
+    ax.set_title(f'T₀ for ELA ≈ {target_ela}m (±{ela_tolerance}m)')
+    plt.colorbar(im1, ax=ax, label='Sea Level Temperature (T₀, °C)')
     
     # Plot 2: 2D heatmap ELA vs T0 and gamma
     ax = axes[0,1]

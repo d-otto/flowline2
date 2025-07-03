@@ -78,7 +78,7 @@ def create_parameter_sweep(
                          elev_range=(0, 3000, 50),
                          mu_range=(0.2, 1.5, 0.05), 
                          gamma_range=(4, 10, 0.25),
-                         T0_range=(5, 20, 0.25),
+                         T0_range=(5, 20, 0.1),
                          P0=1000):  # Fixed winter accumulation
     """
     Create xarray dataset with parameter sweep
