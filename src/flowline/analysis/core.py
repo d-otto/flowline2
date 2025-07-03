@@ -111,24 +111,28 @@ def create_parameter_sweep(
         'T0': T0_vals
     }
     
-    # Initialize data arrays
-    mass_balance_data = np.zeros((len(elevation), len(mu_vals), 
-                                len(gamma_vals), len(T0_vals)))
-    ela_data = np.zeros((len(mu_vals), len(gamma_vals), len(T0_vals)))
+    # Vectorize calculations using NumPy broadcasting to avoid slow Python loops.
     
-    # Calculate mass balance for all parameter combinations
-    for i, h in enumerate(elevation):
-        for j, mu in enumerate(mu_vals):
-            for k, gamma in enumerate(gamma_vals):
-                for l, T0 in enumerate(T0_vals):
-                    mass_balance_data[i,j,k,l] = calc_mass_balance(
-                        h, P0, T0, gamma, mu)
+    # Reshape coordinate arrays for mass balance calculation.
+    # The new shapes align with the dimensions of the final mass_balance array:
+    # (elevation, mu, gamma, T0)
+    h_grid        = elevation.reshape(-1, 1, 1, 1)
+    mu_grid_mb    = mu_vals.reshape(1, -1, 1, 1)
+    gamma_grid_mb = gamma_vals.reshape(1, 1, -1, 1)
+    T0_grid_mb    = T0_vals.reshape(1, 1, 1, -1)
+
+    # Calculate mass balance for all parameter combinations at once
+    mass_balance_data = calc_mass_balance(h_grid, P0, T0_grid_mb, gamma_grid_mb, mu_grid_mb)
     
-    # Calculate ELA for all parameter combinations (excluding elevation)
-    for j, mu in enumerate(mu_vals):
-        for k, gamma in enumerate(gamma_vals):
-            for l, T0 in enumerate(T0_vals):
-                ela_data[j,k,l] = calc_ela(P0, T0, gamma, mu)
+    # Reshape coordinate arrays for ELA calculation.
+    # The new shapes align with the dimensions of the final ELA array:
+    # (mu, gamma, T0)
+    mu_grid_ela    = mu_vals.reshape(-1, 1, 1)
+    gamma_grid_ela = gamma_vals.reshape(1, -1, 1)
+    T0_grid_ela    = T0_vals.reshape(1, 1, -1)
+    
+    # Calculate ELA for all parameter combinations at once
+    ela_data = calc_ela(P0, T0_grid_ela, gamma_grid_ela, mu_grid_ela)
     
     # Create xarray datasets
     dataset = xr.Dataset({
