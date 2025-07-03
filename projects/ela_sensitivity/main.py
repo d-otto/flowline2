@@ -426,6 +426,63 @@ def plot_combined_3d_isolines(ela_dataset, figsize=(12, 9)):
 
     return fig
 
+def plot_mass_balance_gradient_for_fixed_ela(dataset, target_ela=1000, P0=2000, T0_values=[10, 12], figsize=(12, 6)):
+    """
+    Plots mass balance profiles for different (gamma, mu) combinations
+    that yield the same ELA for given T0 values.
+    """
+    if dataset is None:
+        raise ValueError("Must provide a dataset")
+
+    elevations = dataset.elevation.values
+    
+    # Define gamma values to test
+    gamma_combos = [5, 7, 9]
+
+    fig, axes = plt.subplots(1, len(T0_values), figsize=figsize, sharey=True)
+    # Ensure axes is always iterable
+    axes = np.atleast_1d(axes)
+    
+    for ax, T0 in zip(axes, T0_values):
+        for gamma in gamma_combos:
+            # Solve for mu that gives target_ela for this T0 and gamma
+            # An initial guess can be derived from the algebraic solution
+            p0_m = P0 / 1000
+            gamma_m = gamma / 1000
+            # mu = p0_m / (T0 - ela * gamma_m)
+            initial_guess_mu = p0_m / (T0 - target_ela * gamma_m)
+            if initial_guess_mu <= 0 or not np.isfinite(initial_guess_mu):
+                initial_guess_mu = 0.5 # Use a fallback for invalid cases
+
+            mu_solved = solve_ela_for_parameter(
+                target_variable='mu',
+                target_value=target_ela,
+                P0=P0,
+                T0=T0,
+                gamma=gamma,
+                mu=None, # Solving for this
+                initial_guess=initial_guess_mu
+            )
+
+            # Calculate mass balance profile with the solved parameters
+            mb_profile = calc_mass_balance(elevations, P0, T0, gamma, mu_solved)
+
+            # Plot the profile
+            label = f'γ={gamma}, μ={mu_solved:.2f}'
+            ax.plot(mb_profile, elevations, label=label)
+
+        # Formatting the subplot
+        ax.axhline(y=target_ela, color='r', linestyle='--', label=f'ELA = {target_ela}m')
+        ax.axvline(x=0, color='k', linestyle='--')
+        ax.set_title(f'T₀ = {T0}°C, ELA = {target_ela}m')
+        ax.set_xlabel('Mass Balance (m w.e./yr)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    axes[0].set_ylabel('Elevation (m)')
+    fig.tight_layout()
+    return fig
+
 # Example usage and demonstration
 if __name__ == "__main__":
     # Create parameter sweep
