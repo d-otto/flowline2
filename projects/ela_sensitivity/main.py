@@ -499,10 +499,14 @@ if __name__ == "__main__":
     # fig1 = plot_mass_balance_profiles(mb_data, ela_data)
     # plt.show()
     
-    print("Creating ELA sensitivity analysis...")
-    fig2 = plot_ela_sensitivity(ela_data)
-    plt.show()
+    # print("Creating ELA sensitivity analysis...")
+    # fig2 = plot_ela_sensitivity(ela_data)
+    # plt.show()
     
+    print("Creating mass balance profiles for fixed ELA...")
+    fig_new = plot_mass_balance_gradient_for_fixed_ela(mb_data, P0=ela_data.P0.item())
+    plt.show()
+
     # print("Creating 3D ELA surface (fixed T0)...")
     # fig3a = plot_3d_ela_surface(ela_data, fixed_param="T0")
     # plt.show()
