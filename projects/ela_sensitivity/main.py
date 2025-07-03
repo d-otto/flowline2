@@ -230,6 +230,8 @@ def plot_ela_sensitivity(ela_dataset, figsize=(12, 12)):
     # Plotting the smooth surface
     X, Y = np.meshgrid(mu_vals, gamma_vals)
     im1 = ax.contourf(X, Y, solved_t0_grid, levels=15, cmap='viridis')
+    im2 = ax.contour(X, Y, solved_t0_grid, levels=15, colors='k', linewidths=0.5)
+    clabels = ax.clabel(im2, inline=True)
     ax.set_xlabel('Melt Factor (μ)')
     ax.set_ylabel('Lapse Rate (γ, °C/km)')
     ax.set_title(f'T₀ Required for ELA = {target_ela}m')
