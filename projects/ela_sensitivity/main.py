@@ -6,7 +6,7 @@ import seaborn as sns
 from scipy.optimize import fsolve
 import warnings
 
-from src.flowline.analysis.core import create_parameter_sweep, calc_ela, calc_mass_balance
+from flowline.analysis.core import create_parameter_sweep, calc_ela, calc_mass_balance
 
 warnings.filterwarnings('ignore')
 
@@ -199,9 +199,10 @@ def plot_ela_sensitivity(ela_dataset, figsize=(12, 12)):
 
     # Plot 1: 2D heatmap ELA vs mu and gamma
     ax = axes[0,0]
-    ela_2d = ela_data.mean(dim='T0')
-    X, Y = np.meshgrid(ela_2d.mu.values, ela_2d.gamma.values)
-    im1 = ax.contourf(X, Y, ela_2d.values.T, levels=20, cmap='viridis')
+    ela_2d = ela_data.where((ela_data > 995.) & (ela_data <= 1005.), drop=True)
+    print(ela_2d)
+    X, Y = np.meshgrid(ela_2d.mu.values, ela_2d.values)
+    im1 = ax.contourf(X, Y, ela_2d.T0.T, levels=20, cmap='viridis')
     ax.set_xlabel('Melt Factor (μ)')
     ax.set_ylabel('Lapse Rate (γ, °C/km)')
     ax.set_title('ELA: μ vs γ (avg T₀)')
@@ -407,30 +408,30 @@ if __name__ == "__main__":
     print(f"Mass balance dataset shape: {mb_data.mass_balance.shape}")
     print(f"ELA dataset shape: {ela_data.ELA.shape}")
     
-    # Create visualizations
-    print("Creating mass balance profiles...")
-    fig1 = plot_mass_balance_profiles(mb_data, ela_data)
-    plt.show()
+    # # Create visualizations
+    # print("Creating mass balance profiles...")
+    # fig1 = plot_mass_balance_profiles(mb_data, ela_data)
+    # plt.show()
     
     print("Creating ELA sensitivity analysis...")
     fig2 = plot_ela_sensitivity(ela_data)
     plt.show()
     
-    print("Creating 3D ELA surface (fixed T0)...")
-    fig3a = plot_3d_ela_surface(ela_data, fixed_param="T0")
-    plt.show()
+    # print("Creating 3D ELA surface (fixed T0)...")
+    # fig3a = plot_3d_ela_surface(ela_data, fixed_param="T0")
+    # plt.show()
 
-    print("Creating combined 3D ELA isolines...")
-    fig3b = plot_combined_3d_isolines(ela_data)
-    plt.show()
+    # print("Creating combined 3D ELA isolines...")
+    # fig3b = plot_combined_3d_isolines(ela_data)
+    # plt.show()
     
-    print("Creating 3D ELA surface (fixed ELA)...")
-    fig3c = plot_3d_ela_surface(ela_data, fixed_param="ELA")
-    plt.show()
+    # print("Creating 3D ELA surface (fixed ELA)...")
+    # fig3c = plot_3d_ela_surface(ela_data, fixed_param="ELA")
+    # plt.show()
     
-    print("Creating ELA warming response analysis...")
-    fig4_main, fig4_profiles = plot_ela_warming_response(mb_data)
-    plt.show()
+    # print("Creating ELA warming response analysis...")
+    # fig4_main, fig4_profiles = plot_ela_warming_response(mb_data)
+    # plt.show()
     
     # Print some statistics
     print("\nELA Statistics:")
