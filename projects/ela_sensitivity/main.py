@@ -210,11 +210,11 @@ def plot_ela_sensitivity(ela_dataset, figsize=(12, 12)):
 
     # Filter for ELA range and calculate mean T0
     t0_for_ela_range = t0_data_array.where((ela_data >= ela_min) & (ela_data <= ela_max))
-    mean_t0 = t0_for_ela_range.mean(dim='T0')
+    mean_t0 = t0_for_ela_range.median(dim='T0')
     
     # Plotting
     X, Y = np.meshgrid(mean_t0.mu.values, mean_t0.gamma.values)
-    im1 = ax.contourf(X, Y, mean_t0.T, levels=20, cmap='viridis')
+    im1 = ax.contourf(X, Y, mean_t0.T, levels=15, cmap='viridis')
     ax.set_xlabel('Melt Factor (μ)')
     ax.set_ylabel('Lapse Rate (γ, °C/km)')
     ax.set_title(f'T₀ for ELA ≈ {target_ela}m (±{ela_tolerance}m)')
@@ -414,7 +414,7 @@ if __name__ == "__main__":
     # Create parameter sweep
     print("Creating parameter sweep...")
     mb_data, ela_data = create_parameter_sweep(
-        P0=2000  # 1000 mm winter accumulation (converted to m internally)
+        P0=2000  # 2000 mm winter accumulation (converted to m internally)
     )
     
     print(f"Mass balance dataset shape: {mb_data.mass_balance.shape}")

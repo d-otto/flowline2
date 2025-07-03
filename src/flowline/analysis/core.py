@@ -1,6 +1,8 @@
 import numpy as np
 import xarray as xr
+import numba as nb
 
+@nb.njit()
 def calc_ela(P0, T0, gamma, mu, h=None):
     """
     Calculate Equilibrium Line Altitude
@@ -39,6 +41,7 @@ def calc_ela(P0, T0, gamma, mu, h=None):
     ela = T0_adj / gamma_m - P0_m / (mu * gamma_m)
     return ela
 
+@nb.njit()
 def calc_mass_balance(h, P0, T0, gamma, mu):
     """
     Calculate mass balance at given elevation
@@ -75,10 +78,10 @@ def calc_mass_balance(h, P0, T0, gamma, mu):
     return mass_balance
 
 def create_parameter_sweep( 
-                         elev_range=(0, 3000, 50),
-                         mu_range=(0.2, 1.5, 0.05), 
-                         gamma_range=(4, 10, 0.25),
-                         T0_range=(5, 20, 0.1),
+                         elev_range=(0, 2000, 25),
+                         mu_range=(0.2, 1.4, 0.025), 
+                         gamma_range=(4, 10, 0.1),
+                         T0_range=(5, 20, 0.05),
                          P0=1000):  # Fixed winter accumulation
     """
     Create xarray dataset with parameter sweep
