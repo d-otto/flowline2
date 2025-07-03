@@ -1,6 +1,7 @@
 import numpy as np
 import xarray as xr
 import numba as nb
+from scipy.optimize import fsolve
 
 @nb.njit()
 def calc_ela(P0, T0, gamma, mu, h=None):

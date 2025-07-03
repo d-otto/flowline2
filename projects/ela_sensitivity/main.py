@@ -6,7 +6,7 @@ import seaborn as sns
 from scipy.optimize import fsolve
 import warnings
 
-from flowline.analysis.core import create_parameter_sweep, calc_ela, calc_mass_balance
+from flowline.analysis.core import create_parameter_sweep, calc_ela, calc_mass_balance, solve_ela_for_parameter
 
 warnings.filterwarnings('ignore')
 
@@ -197,27 +197,42 @@ def plot_ela_sensitivity(ela_dataset, figsize=(12, 12)):
     ela_data = ela_dataset.ELA
     P0_m = ela_dataset.P0.item() / 1000
 
-    # Plot 1: T0 for a constant ELA
+    # Plot 1: T0 for a constant ELA, calculated with a solver for a smooth plot
     ax = axes[0,0]
     target_ela = 1000
-    ela_tolerance = 25
-    ela_min = target_ela - ela_tolerance
-    ela_max = target_ela + ela_tolerance
-
-    # Create a DataArray with T0 values, shaped like ela_data
-    t0_values = np.broadcast_to(ela_data.T0.values, ela_data.shape)
-    t0_data_array = xr.DataArray(t0_values, coords=ela_data.coords, dims=ela_data.dims)
-
-    # Filter for ELA range and calculate mean T0
-    t0_for_ela_range = t0_data_array.where((ela_data >= ela_min) & (ela_data <= ela_max))
-    mean_t0 = t0_for_ela_range.median(dim='T0')
     
-    # Plotting
-    X, Y = np.meshgrid(mean_t0.mu.values, mean_t0.gamma.values)
-    im1 = ax.contourf(X, Y, mean_t0.T, levels=15, cmap='viridis')
+    # Get parameter ranges from the dataset
+    mu_vals = ela_dataset.mu.values
+    gamma_vals = ela_dataset.gamma.values
+    P0 = ela_dataset.P0.item()
+
+    # Create an empty grid to store the solved T0 values
+    solved_t0_grid = np.zeros((len(gamma_vals), len(mu_vals)))
+
+    # Iterate over the parameter grid and solve for T0 at each point
+    for i, gamma in enumerate(gamma_vals):
+        for j, mu in enumerate(mu_vals):
+            # An initial guess can be derived from the algebraic solution
+            gamma_m = gamma / 1000
+            p0_m = P0 / 1000
+            initial_guess_t0 = (target_ela + p0_m / mu) * gamma_m
+
+            solved_t0_grid[i, j] = solve_ela_for_parameter(
+                target_variable='T0',
+                target_value=target_ela,
+                P0=P0,
+                gamma=gamma,
+                mu=mu,
+                T0=None,  # This is the variable we are solving for
+                initial_guess=initial_guess_t0
+            )
+            
+    # Plotting the smooth surface
+    X, Y = np.meshgrid(mu_vals, gamma_vals)
+    im1 = ax.contourf(X, Y, solved_t0_grid, levels=15, cmap='viridis')
     ax.set_xlabel('Melt Factor (μ)')
     ax.set_ylabel('Lapse Rate (γ, °C/km)')
-    ax.set_title(f'T₀ for ELA ≈ {target_ela}m (±{ela_tolerance}m)')
+    ax.set_title(f'T₀ Required for ELA = {target_ela}m')
     plt.colorbar(im1, ax=ax, label='Sea Level Temperature (T₀, °C)')
     
     # Plot 2: 2D heatmap ELA vs T0 and gamma
