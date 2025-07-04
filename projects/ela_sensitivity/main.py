@@ -483,6 +483,69 @@ def plot_mass_balance_gradient_for_fixed_ela(dataset, target_ela=1000, P0=2000, 
     fig.tight_layout()
     return fig
 
+def plot_mass_balance_gradient_for_fixed_ela_p0(dataset, target_ela=1000, T0_values=[10, 12], figsize=(12, 6)):
+    """
+    Plots mass balance profiles for different (gamma, mu, P0) combinations
+    that yield the same ELA for given T0 values. In this version, P0 is solved for.
+    """
+    if dataset is None:
+        raise ValueError("Must provide a dataset")
+
+    elevations = dataset.elevation.values
+    
+    # Define (gamma, mu) combinations to test
+    param_combos = [
+        {'gamma': 5, 'mu': 0.6},
+        {'gamma': 7, 'mu': 0.9},
+        {'gamma': 9, 'mu': 1.2}
+    ]
+
+    fig, axes = plt.subplots(1, len(T0_values), figsize=figsize, sharey=True)
+    # Ensure axes is always iterable
+    axes = np.atleast_1d(axes)
+    
+    for ax, T0 in zip(axes, T0_values):
+        for combo in param_combos:
+            gamma = combo['gamma']
+            mu = combo['mu']
+
+            # Solve for P0 that gives target_ela for this T0, gamma, and mu
+            # An initial guess can be derived from the algebraic solution
+            gamma_m = gamma / 1000
+            # P0 = 1000 * mu * (T0 - ela * gamma_m)
+            initial_guess_p0 = 1000 * mu * (T0 - target_ela * gamma_m)
+            if initial_guess_p0 <= 0 or not np.isfinite(initial_guess_p0):
+                initial_guess_p0 = 1000 # Use a fallback for invalid cases
+
+            p0_solved = solve_ela_for_parameter(
+                target_variable='P0',
+                target_value=target_ela,
+                P0=None, # Solving for this
+                T0=T0,
+                gamma=gamma,
+                mu=mu,
+                initial_guess=initial_guess_p0
+            )
+
+            # Calculate mass balance profile with the solved parameters
+            mb_profile = calc_mass_balance(elevations, p0_solved, T0, gamma, mu)
+
+            # Plot the profile
+            label = f'γ={gamma}, μ={mu}, P₀={p0_solved:.0f}'
+            ax.plot(mb_profile, elevations, label=label)
+
+        # Formatting the subplot
+        ax.axhline(y=target_ela, color='r', linestyle='--', label=f'ELA = {target_ela}m')
+        ax.axvline(x=0, color='k', linestyle='--')
+        ax.set_title(f'T₀ = {T0}°C, ELA = {target_ela}m')
+        ax.set_xlabel('Mass Balance (m w.e./yr)')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    axes[0].set_ylabel('Elevation (m)')
+    fig.tight_layout()
+    return fig
+
 # Example usage and demonstration
 if __name__ == "__main__":
     # Create parameter sweep
@@ -503,8 +566,12 @@ if __name__ == "__main__":
     # fig2 = plot_ela_sensitivity(ela_data)
     # plt.show()
     
-    print("Creating mass balance profiles for fixed ELA...")
-    fig_new = plot_mass_balance_gradient_for_fixed_ela(mb_data, P0=ela_data.P0.item())
+    # print("Creating mass balance profiles for fixed ELA...")
+    # fig_new = plot_mass_balance_gradient_for_fixed_ela(mb_data, P0=ela_data.P0.item())
+    # plt.show()
+
+    print("Creating mass balance profiles for fixed ELA (solving for P0)...")
+    fig_p0 = plot_mass_balance_gradient_for_fixed_ela_p0(mb_data)
     plt.show()
 
     # print("Creating 3D ELA surface (fixed T0)...")
