@@ -15,6 +15,7 @@ from tqdm import tqdm
 import xarray as xr
 
 from flowline.entrypoints import run_flowline_simulation
+from flowline.visualization import plot_sweep_qc
 
 class FlowlineSweep:
     """
@@ -174,6 +175,9 @@ class FlowlineSweep:
             combined_filepath = self.output_dir / "combined_results.nc"
             combined_ds.to_netcdf(combined_filepath)
             print(f"Combined results saved to: {combined_filepath}")
+
+            # Generate and save QC plots for the sweep
+            plot_sweep_qc(combined_ds, self.output_dir)
         except Exception as e:
             print(f"\nCould not combine results: {e}")
             print(traceback.format_exc())

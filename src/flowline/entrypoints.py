@@ -8,6 +8,7 @@ from .flowline2d import (FlowlineConfig,
                          flowline2d)
 from .geometry import FlowlineGeometry
 from .io import import_from_string
+from .visualization import plot_run_qc
 
 def run_flowline_simulation(params_tuple):
     """
@@ -70,6 +71,10 @@ def run_flowline_simulation(params_tuple):
         ds.attrs['run_parameters'] = json.dumps(run_params, indent=4)
         
         ds.to_netcdf(output_path)
+
+        # Generate and save QC plot
+        plot_output_path = output_path.with_suffix('.png')
+        plot_run_qc(ds, plot_output_path)
         
         return str(output_path)
 
