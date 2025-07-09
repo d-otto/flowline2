@@ -526,8 +526,8 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
             dhdt[0] = b[0] - Qp[0] / (delx / 2) - (Qp[0] + Qm[0]) / (2 * w[0]) * dwdx[0]
         elif (h[j] <= min_thick) & (h[j - 1] > min_thick):  # glacier toe condition
             # Qp[j] = 0
-            h_ave = h[j - 1] / 2
-            dhdx = -h[j - 1] / delx  # correction inserted ght nov-24-04
+            h_ave = (h[j] + h[j-1]) / 2
+            dhdx = (h[j] - h[j-1]) / delx
             slope = dhdx + dzdx[j - 1]
             
             flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
