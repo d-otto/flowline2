@@ -1311,6 +1311,107 @@ class TestFeatures:
         plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
         plt.close()
 
+    def test_profile_export_import(self, ss_result_uniform):
+        """Test that a steady-state profile can be exported and re-imported."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "ss_profile.pkl"
+
+            # 1. Export the steady-state result to a pickle file
+            ss_result_uniform.to_pickle(profile_path)
+            assert profile_path.exists()
+
+            # 2. Setup a new run using the exported profile
+            config = FlowlineConfig(
+                ts=0, tf=100, delx=25, delt=0.0125 / 32, deltout=1
+            )
+
+            # Use DirectMassBalanceForcing with a small positive perturbation.
+            # The base b0 is the final mass balance profile from the steady-state run.
+            ss_b_profile = ss_result_uniform.b_profile[-1, :]
+            forcing = DirectMassBalanceForcing(b0=ss_b_profile, bp=0.1)
+
+            # Initialize geometry using the original grid but loading the initial
+            # thickness profile from the exported file.
+            geometry = FlowlineGeometry(
+                x_gr=ss_result_uniform.x_gr,
+                zb_gr=ss_result_uniform.zb_gr,
+                w_geom=ss_result_uniform.w_geom,
+                profile=profile_path
+            )
+
+            model = flowline2d(config=config, geometry=geometry, forcing=forcing)
+            
+            # 3. Run the model and check results
+            result_from_import = model.run()
+
+            assert result_from_import.no_error, "Model run from imported profile failed."
+            # With a positive MB perturbation, the glacier should advance.
+            assert result_from_import.edge[-1] > result_from_import.edge[0]
+
+            # 4. Create a QC plot for visualization
+            self._create_profile_io_qc_figure(
+                ss_result_uniform,
+                result_from_import,
+                'Profile Export-Import Test',
+                'profile_export_import.png'
+            )
+
+    def _create_profile_io_qc_figure(self, initial_result, final_result, title, filename):
+        """Create QC figure for profile import/export test."""
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle(title, fontsize=14)
+
+        # Plot 1: Initial vs Final ice thickness
+        ax = axes[0, 0]
+        # Initial steady-state profile
+        ss_edge_idx = initial_result.edge_idx[-1]
+        ax.plot(initial_result.x[:ss_edge_idx]/1000, 
+                initial_result.zb[:ss_edge_idx] + initial_result.h[-1, :ss_edge_idx],
+                'g--', linewidth=2, label='Initial State (from file)')
+        
+        # Final state after perturbation
+        final_edge_idx = final_result.edge_idx[-1]
+        ax.fill_between(final_result.x[:final_edge_idx]/1000, 
+                       final_result.zb[:final_edge_idx],
+                       final_result.zb[:final_edge_idx] + final_result.h[-1, :final_edge_idx],
+                       alpha=0.7, color='lightblue', label=f'Final State (after {final_result.config.tf}yr)')
+        ax.plot(final_result.x/1000, final_result.zb, 'k-', linewidth=1, label='Bed')
+        ax.set_xlabel('Distance (km)')
+        ax.set_ylabel('Elevation (m)')
+        ax.set_title('Ice Thickness Profile Comparison')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        # Plot 2: Length evolution of the second run
+        ax = axes[0, 1]
+        ax.plot(final_result.t, final_result.edge/1000, 'b-', linewidth=2)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Glacier Length (km)')
+        ax.set_title('Length Evolution from Imported State')
+        ax.grid(True, alpha=0.3)
+
+        # Plot 3: Mass balance perturbation
+        ax = axes[1, 0]
+        ax.plot(final_result.t, final_result.b_anomaly, 'r-', label='MB Perturbation')
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Mass Balance Perturbation (m/yr)')
+        ax.set_title('Applied Mass Balance Forcing')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim(bottom=0)
+
+        # Plot 4: Area evolution
+        ax = axes[1, 1]
+        ax.plot(final_result.t, final_result.area/1e6, 'g-', linewidth=2)
+        ax.set_xlabel('Time (years)')
+        ax.set_ylabel('Area (km²)')
+        ax.set_title('Area Evolution')
+        ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
+        plt.close()
+
 
 class TestErrorHandling:
     """Test error handling and edge cases"""
@@ -1409,6 +1510,7 @@ def create_qc_figure_index():
         ('timestep_sensitivity.png', 'Time Step Sensitivity Test'),
         ('mass_conservation.png', 'Mass Conservation Test'),
         ('pdd_temperature_forcing.png', 'PDD Temperature Forcing Test'),
+        ('profile_export_import.png', 'Profile Export/Import Test'),
     ]
     
     for filename, description in qc_figures:
