@@ -112,7 +112,7 @@ def calc_diag(res, t=(None, None)):
     )
     diag.loc['b', 'std_025'] = diag.loc['b', 'std_975'] = np.nan
     try:
-        diag.loc['T', 'std'] = res.T[tslice].mean(axis=1).std()
+        diag.loc['T', 'std'] = res.T[tslice].std()
     except AttributeError:
         pass
     diag.loc['L', 'mean'] = res.edge[tslice].mean()
