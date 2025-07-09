@@ -220,3 +220,5 @@ def fit_bprofile(bz, ba, z, P, T, gamma, mu, Tamp):
     z = np.arange(z[0], z[1])
     bopt_profile = calc_b(z, *out[0])
     return bopt, bopt_profile
+
+
