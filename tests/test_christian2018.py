@@ -302,7 +302,7 @@ class TestChristianGlacier1:
                 ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig(Path("test_qc_figures") / filename, dpi=150, bbox_inches='tight')
+        plt.savefig(Path("tests/qc_figures") / filename, dpi=150, bbox_inches='tight')
         plt.close()
     
     def _create_warming_response_figure(self, result, params, filename):
