@@ -45,6 +45,9 @@ def _create_model_from_params(run_params):
         scale = h_init_params.get('scale', 100)
         length = h_init_params.get('length', 5000)
         h_init = np.maximum(0, scale * (1 - x_gr / length))
+    elif profile_path is None:
+        # If no profile and no h_init params, default to starting with zero ice.
+        h_init = np.zeros_like(x_gr)
     else:
         h_init = None
     
