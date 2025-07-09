@@ -126,9 +126,10 @@ def plot_sweep_qc(ds, output_dir):
         # Stack non-time dimensions to plot all runs
         non_time_dims = [dim for dim in edge_plot.dims if dim != 'time']
         edge_plot = edge_plot.stack(run=non_time_dims)
+        colors = plt.get_cmap("Spectral", lut=edge_plot.shape[-1])
 
     if edge_plot.ndim > 1:
-        edge_plot.plot.line(ax=ax, x='time', add_legend=False, alpha=0.7)
+        edge_plot.plot.line(ax=ax, x='time', add_legend=True, alpha=0.7)
     else:
         edge_plot.plot(ax=ax, alpha=0.7)
 
