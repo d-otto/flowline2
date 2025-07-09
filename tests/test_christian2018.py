@@ -381,7 +381,7 @@ class TestChristianGlacier1:
         ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig(Path("test_qc_figures") / filename, dpi=150, bbox_inches='tight')
+        plt.savefig(Path("tests/qc_figures") / filename, dpi=150, bbox_inches='tight')
         plt.close()
 
 
@@ -420,4 +420,4 @@ if __name__ == "__main__":
     print("✓ Warming response test completed")
     print()
     
-    print("All tests completed! Check test_qc_figures/ for output plots.")
+    print("All tests completed! Check tests/qc_figures/ for output plots.")
