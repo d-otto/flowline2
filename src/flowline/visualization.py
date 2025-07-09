@@ -138,10 +138,16 @@ def plot_sweep_qc(ds, output_dir):
 
     volume = (ds.h * ds.w * delx).sum(dim='x')
     fig, ax = plt.subplots(figsize=(10, 6))
-    if volume.ndim > 1:
-        (volume / 1e9).plot.line(ax=ax, x='time', add_legend=False, alpha=0.7)
+    volume_plot = volume / 1e9
+    if volume_plot.ndim > 2:
+        # Stack non-time dimensions to plot all runs
+        non_time_dims = [dim for dim in volume_plot.dims if dim != 'time']
+        volume_plot = volume_plot.stack(run=non_time_dims)
+
+    if volume_plot.ndim > 1:
+        volume_plot.plot.line(ax=ax, x='time', add_legend=False, alpha=0.7)
     else:
-        (volume / 1e9).plot(ax=ax, alpha=0.7)
+        volume_plot.plot(ax=ax, alpha=0.7)
 
     ax.set_title('Glacier Volume Trajectories')
     ax.set_xlabel('Time (years)')
