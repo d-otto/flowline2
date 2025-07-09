@@ -366,9 +366,10 @@ class flowline2d:
                         class Geometry:
                             pass
                         self.geometry = Geometry()
-                        self.geometry.x_gr = ds_['x_gr'].values
-                        self.geometry.zb_gr = ds_['zb_gr'].values
-                        self.geometry.w_geom = ds_['w_geom'].values
+                        self.geometry.x_gr = ds_.attrs['x_gr']
+                        # Since the grid is checked to be the same, we can use the resampled vars.
+                        self.geometry.zb_gr = ds_['zb_gr_resampled'].values
+                        self.geometry.w_geom = ds_['w_geom_resampled'].values
 
                         # Recreate config from attributes, filtering for valid FlowlineConfig fields
                         # to avoid issues with __post_init__ double-counting conversions.
@@ -587,6 +588,11 @@ class flowline2d:
 
     def to_xarray(self):
         """Convert results to xarray Dataset with proper metadata"""
+        # Interpolate raw geometry to the model grid 'x' to save it as a data variable.
+        # This avoids creating extra dimensions that interfere with sweep analysis tools.
+        zb_gr_interp_func = interp1d(self.x_gr, self.zb_gr, bounds_error=False, fill_value="extrapolate")
+        w_geom_interp_func = interp1d(self.x_gr, self.w_geom, bounds_error=False, fill_value="extrapolate")
+
         # Build data variables dynamically based on what exists
         data_vars = {
             'edge_idx': (['time'], self.edge_idx),
@@ -602,9 +608,9 @@ class flowline2d:
             'w': (['x'], self.w),
             'zb': (['x'], self.zb),
             'F': (['time', 'x'], self.F),
-            'zb_gr': (['x_gr_dim'], self.zb_gr),
-            'w_geom': (['x_gr_dim'], self.w_geom),
-            'x_gr': (['x_gr_dim'], self.x_gr),
+            # Add resampled original geometry as data variables with dimension 'x'
+            'zb_gr_resampled': (['x'], zb_gr_interp_func(self.x)),
+            'w_geom_resampled': (['x'], w_geom_interp_func(self.x)),
         }
         
         # Add climate-specific variables if they exist
@@ -616,13 +622,14 @@ class flowline2d:
         config_dict = asdict(self.config)
         # Filter out None values, as they are not supported by netCDF attributes
         attrs = {k: v for k, v in config_dict.items() if v is not None}
+        # Store the original x_gr grid as a numpy array attribute
+        attrs['x_gr'] = self.x_gr
 
         ds = xr.Dataset(
             data_vars=data_vars,
             coords={
                 'time': self.t,
                 'x': self.x,
-                'x_gr_dim': np.arange(len(self.x_gr)),
             },
             attrs=attrs
         )
