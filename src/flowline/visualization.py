@@ -109,10 +109,16 @@ def plot_sweep_qc(ds, output_dir):
 
     # Plot 1: Glacier length trajectories
     fig, ax = plt.subplots(figsize=(10, 6))
-    if ds.edge.ndim > 1:
-        (ds.edge / 1e3).plot.line(ax=ax, x='time', add_legend=False, alpha=0.7)
+    edge_plot = ds.edge / 1e3
+    if edge_plot.ndim > 2:
+        # Stack non-time dimensions to plot all runs
+        non_time_dims = [dim for dim in edge_plot.dims if dim != 'time']
+        edge_plot = edge_plot.stack(run=non_time_dims)
+
+    if edge_plot.ndim > 1:
+        edge_plot.plot.line(ax=ax, x='time', add_legend=False, alpha=0.7)
     else:
-        (ds.edge / 1e3).plot(ax=ax, alpha=0.7)
+        edge_plot.plot(ax=ax, alpha=0.7)
 
     ax.set_title('Glacier Length Trajectories')
     ax.set_xlabel('Time (years)')
