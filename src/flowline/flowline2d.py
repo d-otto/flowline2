@@ -200,7 +200,7 @@ class flowline2d:
 
         profile_path_str = getattr(self.geometry, 'profile', None)
 
-        if profile_path_str and Path(profile_path_str).suffix == '.nc':
+        if isinstance(profile_path_str, (str, Path)) and Path(profile_path_str).suffix == '.nc':
             with xr.open_dataset(profile_path_str) as ds:
                 if not np.allclose(ds['x'].values, self.geometry.x):
                     raise GeometryError("Spinup profile grid (x) does not match model grid.")
@@ -566,7 +566,7 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
     h = np.core.umath.maximum(h + dhdt * delt, 0)
     
     # More robust edge detection
-    edge = nxs - 1  # Default to end of domain
+    edge = nxs      # Default to end of domain
     for i in range(nxs):
         if h[i] < min_thick:
             edge = i
