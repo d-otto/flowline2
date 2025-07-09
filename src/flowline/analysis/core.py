@@ -3,6 +3,8 @@ import xarray as xr
 import numba as nb
 from scipy.optimize import fsolve
 
+from flowline.diagnostics import calc_ela, calc_mass_balance
+
 
 
 def solve_ela_for_parameter(target_variable, target_value, P0, T0=None, gamma=None, mu=None, initial_guess=10):
