@@ -366,7 +366,7 @@ class flowline2d:
                         class Geometry:
                             pass
                         self.geometry = Geometry()
-                        self.geometry.x_gr = ds_.coords['x_gr'].values
+                        self.geometry.x_gr = ds_.coords['geometry_x'].values
                         self.geometry.zb_gr = ds_['zb_gr'].values
                         self.geometry.w_geom = ds_['w_geom'].values
 
@@ -602,8 +602,8 @@ class flowline2d:
             'w': (['x'], self.w),
             'zb': (['x'], self.zb),
             'F': (['time', 'x'], self.F),
-            'zb_gr': (['x_gr'], self.zb_gr),
-            'w_geom': (['x_gr'], self.w_geom),
+            'zb_gr': (['geometry_x'], self.zb_gr),
+            'w_geom': (['geometry_x'], self.w_geom),
         }
         
         # Add climate-specific variables if they exist
@@ -621,7 +621,7 @@ class flowline2d:
             coords={
                 'time': self.t,
                 'x': self.x,
-                'x_gr': self.x_gr,
+                'geometry_x': self.x_gr,
             },
             attrs=attrs
         )
