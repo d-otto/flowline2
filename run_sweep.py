@@ -106,6 +106,9 @@ def main():
                 val = params
                 for k in keys:
                     val = val[k]
+                # Convert list to string for use as a coordinate
+                if isinstance(val, list):
+                    val = str(val)
                 coord_name = dim_key.replace('.', '_')
                 coords[coord_name] = val
             return ds.assign_coords(coords).expand_dims(list(coords.keys()))
