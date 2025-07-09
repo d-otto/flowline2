@@ -116,7 +116,7 @@ def solve_ela_for_parameter(target_variable, target_value, P0, T0=None, gamma=No
 def create_parameter_sweep( 
                          elev_range=(0, 2000, 25),
                          mu_range=(0.2, 1.4, 0.025), 
-                         gamma_range=(4, 10, 0.1),
+                         gamma_range=(2, 20, 0.1),
                          T0_range=(5, 20, 0.05),
                          P0=1000):  # Fixed winter accumulation
     """
