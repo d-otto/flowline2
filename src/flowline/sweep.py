@@ -197,8 +197,10 @@ class FlowlineSweep:
         print(f"Dask dashboard link: {client.dashboard_link}")
         
         tasks = []
+        spinup_config = self.config.get('spinup', {})
         for i, params in enumerate(run_params_list):
-            task = dask.delayed(run_flowline_simulation)((i, params, self.output_dir))
+            task = dask.delayed(run_flowline_simulation)((i, params, self.output_dir, 
+                                                          spinup_config))
             tasks.append(task)
             
         print("Executing sweep...")
