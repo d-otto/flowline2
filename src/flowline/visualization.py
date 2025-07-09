@@ -173,8 +173,12 @@ def plot_sweep_qc(ds, output_dir):
 
         sns.lineplot(
             data=df_vol, x='time', y='volume_km3', hue=hue_dim,
-            style=style_dim, ax=ax, palette='viridis', legend=False
+            style=style_dim, ax=ax, palette='viridis', legend='auto'
         )
+        if ax.get_legend():
+            # Adjust figure to make space for legend and move it
+            fig.tight_layout(rect=[0, 0, 0.8, 1])
+            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
     else:
         # Fallback for single run
         volume_plot.plot(ax=ax, alpha=0.7)
@@ -183,7 +187,7 @@ def plot_sweep_qc(ds, output_dir):
     ax.set_xlabel('Time (years)')
     ax.set_ylabel('Volume (km^3)')
     ax.grid(True, linestyle='--', alpha=0.6)
-    plt.savefig(output_dir / 'sweep_qc_volume.png', dpi=150)
+    plt.savefig(output_dir / 'sweep_qc_volume.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     # Plot 3: Cumulative fractional length change
@@ -200,8 +204,12 @@ def plot_sweep_qc(ds, output_dir):
 
         sns.lineplot(
             data=df_edge_change, x='time', y='frac_length_change', hue=hue_dim,
-            style=style_dim, ax=ax, palette='viridis', legend=False
+            style=style_dim, ax=ax, palette='viridis', legend='auto'
         )
+        if ax.get_legend():
+            # Adjust figure to make space for legend and move it
+            fig.tight_layout(rect=[0, 0, 0.8, 1])
+            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
     else:
         # Fallback for single run
         frac_edge_change.plot(ax=ax, alpha=0.7)
@@ -228,8 +236,12 @@ def plot_sweep_qc(ds, output_dir):
 
         sns.lineplot(
             data=df_vol_change, x='time', y='frac_volume_change', hue=hue_dim,
-            style=style_dim, ax=ax, palette='viridis', legend=False
+            style=style_dim, ax=ax, palette='viridis', legend='auto'
         )
+        if ax.get_legend():
+            # Adjust figure to make space for legend and move it
+            fig.tight_layout(rect=[0, 0, 0.8, 1])
+            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
     else:
         # Fallback for single run
         frac_volume_change.plot(ax=ax, alpha=0.7)
@@ -239,7 +251,7 @@ def plot_sweep_qc(ds, output_dir):
     ax.set_ylabel('Fractional Change')
     ax.set_ylim(0, 1)
     ax.grid(True, linestyle='--', alpha=0.6)
-    plt.savefig(output_dir / 'sweep_qc_frac_volume_change.png', dpi=150)
+    plt.savefig(output_dir / 'sweep_qc_frac_volume_change.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     print(f"Sweep QC plots saved in: {output_dir}")
