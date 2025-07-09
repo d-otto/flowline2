@@ -3,128 +3,6 @@ import numpy as np
 import scipy as sci
 import numba as nb
 
-class MassBalanceForcing(ABC):
-    """Base class for mass balance forcing"""
-    
-    @abstractmethod
-    def get_mass_balance(self, x, h_eff, year_idx):
-        """Calculate mass balance for given conditions"""
-        pass
-    
-    @abstractmethod
-    def get_climate_vars(self, year_idx):
-        """Get climate variables for output"""
-        pass
-
-class TemperaturePrecipitationForcing(MassBalanceForcing):
-    """Temperature-precipitation based mass balance forcing"""
-    
-    def __init__(self, T0, P0, sigT=1, sigP=1, T=None, P=None, temp=None, 
-                 t_stab=None, mu=0.65, gamma=6.5e-3, dpdz=None, T2melt=None,
-                 pdd_Tamp=None, pdd_beta=None, ts=0, tf=2025):
-        self.T0 = T0
-        self.P0 = P0
-        self.sigT = sigT
-        self.sigP = sigP
-        self.mu = mu
-        self.gamma = gamma
-        self.T2melt = T2melt
-        self.pdd_Tamp = pdd_Tamp
-        self.pdd_beta = pdd_beta
-        self.ts = ts
-        
-        nyrs = int(tf - ts)
-        
-        # Initialize climate arrays
-        if T is None:
-            T = np.zeros(nyrs)
-        if P is None:
-            P = np.zeros(nyrs)
-        if temp is None:
-            temp = np.zeros(nyrs)
-        if dpdz is None:
-            dpdz = np.zeros(5000)  # Default elevation range
-            
-        self.Tp = sigT * T  # Temperature perturbation
-        self.Pp = sigP * P  # Precipitation perturbation
-        self.temp = temp    # Temperature trend
-        self.dpdz = dpdz    # Precipitation-elevation relationship
-        
-        # Apply stability period
-        if t_stab:
-            self.Tp[:t_stab] = 0
-            self.Pp[:t_stab] = 0
-            self.temp[:t_stab] = 0
-    
-    def get_mass_balance(self, x, h_eff, year_idx):
-        """Calculate mass balance from temperature and precipitation"""
-        P = (self.P0 + self.Pp[year_idx]) * np.ones(x.size)
-        T_wk = ((self.T0 + self.Tp[year_idx]) * np.ones(x.size) + 
-                self.temp[year_idx] - self.gamma * h_eff)
-        
-        pdd = None
-        if callable(self.T2melt):
-            melt = self.T2melt(T_wk)
-        elif self.T2melt == 'pdd':
-            pdd = calc_pdd(T_wk, self.pdd_Tamp)
-            melt = np.maximum(0, pdd * self.mu)
-        else:
-            melt = np.maximum(0, T_wk * self.mu)
-        
-        return P - melt, {'P': P, 'melt': melt, 'T': T_wk, 'pdd': pdd}
-    
-    def get_climate_vars(self, year_idx):
-        """Get climate variables for output"""
-        return {
-            'T': self.T0 + self.Tp[year_idx] + self.temp[year_idx]
-        }
-
-class DirectMassBalanceForcing(MassBalanceForcing):
-    """Direct mass balance forcing"""
-    
-    def __init__(self, b0, bp=None, bal=None, sigb=1, bz=None, bx=None, ts=0, tf=2025):
-        self.b0 = b0
-        self.sigb = sigb
-        self.bz = bz
-        self.bx = bx
-        
-        nyrs = int(tf - ts)
-        if bp is None:
-            bp = np.zeros(nyrs)
-        if bal is None:
-            bal = np.zeros(nyrs)
-            
-        self.bp = bp
-        self.bal = bal
-    
-    def get_mass_balance(self, x, h_eff, year_idx):
-        """Calculate mass balance directly"""
-        # Ensure year_idx is within bounds
-        year_idx = min(year_idx, len(self.bp) - 1, len(self.bal) - 1)
-        
-        if self.bz is not None:
-            # Clip elevation indices to valid range
-            h_indices = np.clip(h_eff.astype(int), 0, len(self.bz) - 1)
-            b = (self.b0 + self.bp[year_idx] * self.sigb + 
-                 self.bal[year_idx] + self.bz[h_indices])
-        elif self.bx is not None:
-            # Clip distance indices to valid range  
-            x_indices = np.clip(x.astype(int), 0, len(self.bx) - 1)
-            b = (self.b0 + self.bp[year_idx] * self.sigb + 
-                 self.bal[year_idx] + self.bx[x_indices])
-        else:
-            # Simple case: just base mass balance plus perturbations
-            # Ensure scalar values are properly broadcast
-            bp_val = self.bp[year_idx] if hasattr(self.bp[year_idx], '__len__') else self.bp[year_idx]
-            bal_val = self.bal[year_idx] if hasattr(self.bal[year_idx], '__len__') else self.bal[year_idx]
-            b = (self.b0 + bp_val * self.sigb + bal_val) * np.ones_like(x)
-        
-        return b, {}
-    
-    def get_climate_vars(self, year_idx):
-        """Get climate variables for output"""
-        return {}
-
 @nb.njit
 def calc_pdd(T, Tamp, days=365):
     """
@@ -151,6 +29,8 @@ def calc_pdd(T, Tamp, days=365):
         if T[i] <= -Tamp:
             # If mean temp is very low, no positive temps will occur
             pdd[i] = 0
+        elif T[i] >= Tamp:
+            pdd[i] = T[i]
         else:
             # Semi-analytical solution for positive degree days
             # when temperature follows a sinusoidal pattern
@@ -159,6 +39,7 @@ def calc_pdd(T, Tamp, days=365):
     
     # Scale by the number of days in the period
     return pdd * days
+
 
 def calc_b(z, P0, T0, gamma, mu, Tamp, days=365, return_pdd=False):
     """
@@ -204,10 +85,11 @@ def calc_b(z, P0, T0, gamma, mu, Tamp, days=365, return_pdd=False):
         return mass_balance, pdd
     else:
         return mass_balance
+    
 
-def fit_bprofile(bz, ba, z, P, T, gamma, mu, Tamp):
+def fit_bprofile(b, bz, ba, z, P, T, gamma, mu, Tamp):
     out = sci.optimize.curve_fit(
-        calc_b,
+        b,
         bz,
         ba,
         bounds=([P[0], T[0], gamma[0], mu[0], Tamp[0]], [P[1], T[1], gamma[1], mu[1], Tamp[1]]),
@@ -218,7 +100,164 @@ def fit_bprofile(bz, ba, z, P, T, gamma, mu, Tamp):
     bopt = {k: v for k, v in zip(keys, out[0])}
 
     z = np.arange(z[0], z[1])
-    bopt_profile = calc_b(z, *out[0])
+    bopt_profile = b(z, *out[0])
     return bopt, bopt_profile
+
+
+class MassBalanceForcing(ABC):
+    """Base class for mass balance forcing"""
+    
+    @abstractmethod
+    def get_mass_balance(self, x, h_eff, year_idx):
+        """Calculate mass balance for given conditions"""
+        pass
+    
+    @abstractmethod
+    def get_climate_vars(self, year_idx):
+        """Get climate variables for output"""
+        pass
+
+
+class TemperaturePrecipitationForcing(MassBalanceForcing):
+    """Temperature-precipitation based mass balance forcing"""
+    
+    def __init__(self, T0, P0, sigT=1, sigP=1, T=None, P=None, temp=None, 
+                 t_stab=None, mu=0.65, gamma=6.5e-3, dpdz=None, T2melt=None,
+                 pdd_Tamp=None, pdd_beta=None, ts=0, tf=2025):
+        self.T0 = T0
+        self.P0 = P0
+        self.sigT = sigT
+        self.sigP = sigP
+        self.mu = mu
+        self.gamma = gamma
+        self.T2melt = T2melt
+        self.pdd_Tamp = pdd_Tamp
+        self.pdd_beta = pdd_beta
+        self.ts = ts
+        
+        nyrs = int(np.ceil(tf - ts))
+        
+        # Initialize climate arrays
+        if T is None:
+            T = np.zeros(nyrs)
+        if P is None:
+            P = np.zeros(nyrs)
+        if temp is None:
+            temp = np.zeros(nyrs)
+        if dpdz is None:
+            dpdz = np.zeros(5000)  # Default elevation range
+            
+        self.Tp = sigT * T  # Temperature perturbation
+        self.Pp = sigP * P  # Precipitation perturbation
+        self.temp = temp    # Temperature trend
+        self.dpdz = dpdz    # Precipitation-elevation relationship
+        
+        # Apply stability period
+        if t_stab:
+            self.Tp[:t_stab] = 0
+            self.Pp[:t_stab] = 0
+            self.temp[:t_stab] = 0
+    
+    def get_mass_balance(self, x, h_eff, year_idx):
+        """Calculate mass balance from temperature and precipitation"""
+        # Clip year_idx to prevent index out of bounds on the last step
+        year_idx = min(year_idx, len(self.Pp) - 1)
+        
+        accumulation = (self.P0 + self.Pp[year_idx]) * np.ones(x.size)
+        T_wk = ((self.T0 + self.Tp[year_idx]) * np.ones(x.size) + 
+                self.temp[year_idx] - self.gamma * h_eff)
+        
+        pdd = None
+        if callable(self.T2melt):
+            melt = self.T2melt(T_wk)
+        elif self.T2melt == 'pdd':
+            pdd = calc_pdd(T_wk, self.pdd_Tamp)
+            melt = np.maximum(0, pdd * self.mu)
+        else:
+            melt = np.maximum(0, T_wk * self.mu)
+        
+        return accumulation - melt, {'accumulation': accumulation, 'melt': melt, 'T': T_wk, 'pdd': pdd}
+    
+    def get_climate_vars(self, year_idx):
+        """Get climate variables for output"""
+        return {
+            'T': self.T0 + self.Tp[year_idx] + self.temp[year_idx]
+        }
+
+
+class DirectMassBalanceForcing(MassBalanceForcing):
+    """Direct mass balance forcing with optional spatial gradients and temporal anomalies"""
+    
+    def __init__(self, b0=0, bp=None, dbdz=None, dbdx=None):
+        """
+        Initialize direct mass balance forcing
+        
+        Parameters
+        ----------
+        b0 : float
+            Base mass balance rate (m/yr)
+        bp : float, array-like, or None
+            Mass balance anomaly time series (m/yr). Can be:
+            - float: constant anomaly for all time
+            - array: time series of anomalies (one value per year)
+            - None: no anomaly (default)
+        dbdz : array-like or None
+            Mass balance gradient with elevation (m/yr per m elevation).
+            Array should be indexed by elevation in meters.
+        dbdx : array-like or None  
+            Mass balance gradient with distance (m/yr per m distance).
+            Array should be indexed by distance in meters.
+        """
+        self.b0 = b0
+        self.dbdz = dbdz
+        self.dbdx = dbdx
+        
+        # Handle bp (mass balance anomaly)
+        if bp is None:
+            self.bp = None
+        elif np.isscalar(bp):
+            self.bp = bp  # Constant anomaly
+        else:
+            self.bp = np.array(bp)  # Time series
+    
+    def get_mass_balance(self, x, h_eff, year_idx):
+        """Calculate mass balance directly"""
+        # Start with base mass balance
+        if np.isscalar(self.b0):
+            b = np.full_like(x, self.b0, dtype=float)
+        else:
+            b = np.array(self.b0, dtype=float)
+        
+        # Add elevation-dependent component
+        if self.dbdz is not None:
+            # Clip elevation indices to valid range to prevent crashes
+            h_indices = np.clip(h_eff.astype(int), 0, len(self.dbdz) - 1)
+            b += self.dbdz[h_indices]
+        
+        # Add distance-dependent component  
+        if self.dbdx is not None:
+            # Clip distance indices to valid range to prevent crashes
+            x_indices = np.clip(x.astype(int), 0, len(self.dbdx) - 1)
+            b += self.dbdx[x_indices]
+        
+        # Add temporal anomaly
+        bp_val = 0.0
+        if self.bp is not None:
+            if np.isscalar(self.bp):
+                # Constant anomaly
+                bp_val = self.bp
+            else:
+                # Time series anomaly
+                bp_val = self.bp[year_idx]
+            b += bp_val
+
+        accumulation = np.maximum(0, b)
+        melt = np.maximum(0, -b)
+        
+        return b, {'b_anomaly': bp_val, 'accumulation': accumulation, 'melt': melt}
+    
+    def get_climate_vars(self, year_idx):
+        """Get climate variables for output"""
+        return {}
 
 
