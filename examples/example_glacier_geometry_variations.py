@@ -12,7 +12,6 @@ This script demonstrates:
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-import dill
 
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing, flowline2d)
 from flowline.geometry import FlowlineGeometry, create_uniform_slope
@@ -63,8 +62,8 @@ def main():
     spinup_result = run_spinup(spinup_config, spinup_geom_initial, spinup_forcing)
     
     # Save the spin-up result to a file for Scenario 3
-    profile_path = output_dir / "spinup_profile.pkl"
-    spinup_result.to_pickle(profile_path)
+    profile_path = output_dir / "spinup_profile.nc"
+    spinup_result.to_xarray().to_netcdf(profile_path)
     print(f"Spin-up profile saved to: {profile_path}")
 
     # --- 3. Define Glacier Geometry Initialization Scenarios ---

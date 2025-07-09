@@ -17,7 +17,6 @@ from dataclasses import dataclass, asdict
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-import dill
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.gridspec as gridspec
@@ -361,12 +360,6 @@ class flowline2d:
                 pdd_values = np.maximum(pdd_values, 0.0)
                 self.pdd[idx_out, :] = pdd_values
 
-
-    def to_pickle(self, fp):
-        with open(fp, "wb") as f:
-            dill.dump(self, f)
-
-        return None
 
     def to_pandas(self):
         d = dict(
