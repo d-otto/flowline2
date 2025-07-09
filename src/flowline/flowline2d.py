@@ -15,6 +15,7 @@ import traceback
 from functools import partial
 from dataclasses import dataclass, asdict
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import dill
 import matplotlib as mpl
@@ -347,10 +348,41 @@ class flowline2d:
     
     def _setup_model(self):
         """Setup model grid, geometry, and output arrays"""
+        from pathlib import Path
         # Setup geometry and grid
         self.geometry.setup_grid(self.config.delx)
-        self.spinup_result = self.geometry.load_initial_profile()
-        
+
+        profile_path_str = getattr(self.geometry, 'profile', None)
+
+        if profile_path_str and Path(profile_path_str).suffix == '.nc':
+            with xr.open_dataset(profile_path_str) as ds:
+                if not np.allclose(ds['x'].values, self.geometry.x):
+                    raise GeometryError("Spinup profile grid (x) does not match model grid.")
+
+                self.geometry.h0 = ds['h'].isel(time=-1).values
+
+                class SpinupResult:
+                    def __init__(self, ds_):
+                        class Geometry:
+                            pass
+                        self.geometry = Geometry()
+                        self.geometry.x_gr = ds_.coords['x_gr'].values
+                        self.geometry.zb_gr = ds_['zb_gr'].values
+                        self.geometry.w_geom = ds_['w_geom'].values
+
+                        # Recreate config from attributes, filtering for valid FlowlineConfig fields
+                        # to avoid issues with __post_init__ double-counting conversions.
+                        spinup_config = FlowlineConfig()
+                        valid_config_keys = self.config.__annotations__.keys()
+                        spinup_attrs = {k: v for k, v in ds_.attrs.items() if k in valid_config_keys}
+                        for k, v in spinup_attrs.items():
+                            setattr(spinup_config, k, v)
+                        self.config = spinup_config
+
+                self.spinup_result = SpinupResult(ds)
+        else:
+            self.spinup_result = self.geometry.load_initial_profile()
+
         # Copy geometry attributes for easy access
         self.x = self.geometry.x
         self.zb = self.geometry.zb
@@ -359,7 +391,7 @@ class flowline2d:
         self.dwdx = self.geometry.dwdx
         self.nxs = self.geometry.nxs
         self.h0 = self.geometry.h0
-        
+
         # Store original geometry grid for posterity
         if self.spinup_result:
             self.x_gr = self.spinup_result.geometry.x_gr
@@ -372,7 +404,7 @@ class flowline2d:
 
         # Calculate number of time steps
         self.nts = round(np.floor((self.config.tf - self.config.ts) / self.config.delt))
-        
+
         # Initialize output arrays
         self._initialize_output_arrays()
     
@@ -570,6 +602,8 @@ class flowline2d:
             'w': (['x'], self.w),
             'zb': (['x'], self.zb),
             'F': (['time', 'x'], self.F),
+            'zb_gr': (['x_gr'], self.zb_gr),
+            'w_geom': (['x_gr'], self.w_geom),
         }
         
         # Add climate-specific variables if they exist
@@ -587,6 +621,7 @@ class flowline2d:
             coords={
                 'time': self.t,
                 'x': self.x,
+                'x_gr': self.x_gr,
             },
             attrs=attrs
         )
