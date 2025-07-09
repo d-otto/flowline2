@@ -7,9 +7,10 @@ base_parameters:
   config:
     ts: 0
     tf: 500
-    delx: 50
-    delt: 0.0125/16
-    deltout: 5.0
+    delx: 25
+    delt: 0.0015625  # 0.0125/8
+    #delt: 0.00078125 # 0.0125/16
+    deltout: 1.0
     min_thick: 1.0
   
   geometry:
@@ -19,26 +20,27 @@ base_parameters:
       domain_extent: 12000
       x_gr_points: 61
       width: 1000
+      elevation_drop: 1000
     
     # Parameters for a simple linear initial thickness profile
-    h_init_params:
-      scale: 100
-      length: 5000
+    # h_init_params:
+    #   scale: 100
+    #   length: 5000
 
     # To initialize from a steady state profile instead, comment out h_init_params
     # and provide a path to a pickled result object:
-    # profile: 'test_qc_figures/test_cache/steady_state_uniform.pkl'
+    profile: 'examples/example_outputs/spinup_profile.pkl'
 
   forcing:
     mode: 'TP' # Can be 'TP' (TemperaturePrecipitation) or 'b' (DirectMassBalance)
-    T0: 8.0
     P0: 2.0
-    gamma: 6.5e-3
 
 # --- Sweep Parameters ---
 # Define the parameters to sweep over. The script will generate a run for
 # every combination of the values in these lists.
 # Use dot notation to access nested parameters.
 sweep_parameters:
-  config.mu: [0.60, 0.65, 0.70]
-  geometry.parameters.elevation_drop: [900, 1000, 1100]
+  #forcing.mu: [0.40, 0.50, 0.60, 0.70]
+  #geometry.parameters.elevation_drop: [900, 1000, 1100]
+  #forcing.gamma: [0.004, 0.005, 0.006, 0.007, 0.008]
+  forcing.T0: [7.0, 7.2., 7.4, 7.6, 7.8, 8.0, 8.2, 8.4, 8.6, 8.8, 9.0]
