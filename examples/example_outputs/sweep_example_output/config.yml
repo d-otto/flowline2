@@ -1,0 +1,32 @@
+base_parameters:
+  config:
+    delt: 0.003125
+    deltout: 10.0
+    delx: 100
+    min_thick: 1.0
+    tf: 100
+    ts: 0
+  forcing:
+    P0: 2.0
+    T0: 8.0
+    gamma: 0.0065
+    mode: TP
+  geometry:
+    function: flowline.geometry.create_uniform_slope
+    h_init_params:
+      length: 5000
+      scale: 100
+    parameters:
+      bed_characteristic_length: 10000
+      domain_extent: 12000
+      width: 1000
+      x_gr_points: 61
+sweep_parameters:
+  config.mu:
+  - 0.6
+  - 0.65
+  - 0.7
+  - 0.75
+  geometry.parameters.elevation_drop:
+  - 900
+  - 1100
