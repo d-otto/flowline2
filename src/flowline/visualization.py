@@ -3,6 +3,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
+import seaborn as sns
 
 def init_plot():
     """Initialize real-time plotting figure"""
@@ -122,22 +123,33 @@ def plot_sweep_qc(ds, output_dir):
     # Plot 1: Glacier length trajectories
     fig, ax = plt.subplots(figsize=(10, 6))
     edge_plot = ds.edge / 1e3
-    if edge_plot.ndim > 2:
-        # Stack non-time dimensions to plot all runs
-        non_time_dims = [dim for dim in edge_plot.dims if dim != 'time']
-        edge_plot = edge_plot.stack(run=non_time_dims)
-        colors = plt.get_cmap("Spectral", lut=edge_plot.shape[-1])
+    sweep_dims = [dim for dim in ds.coords if dim not in ['time', 'x']]
 
-    if edge_plot.ndim > 1:
-        edge_plot.plot.line(ax=ax, x='time', add_legend=True, alpha=0.7)
+    if sweep_dims:
+        df_edge = edge_plot.to_dataframe(name='length_km').reset_index()
+        hue_dim = sweep_dims[0]
+        style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
+
+        if len(sweep_dims) > 2:
+            print(f"Warning: More than 2 sweep dimensions. Plotting with color for '{hue_dim}' and style for '{style_dim}'.")
+
+        sns.lineplot(
+            data=df_edge, x='time', y='length_km', hue=hue_dim,
+            style=style_dim, ax=ax, palette='viridis', legend='auto'
+        )
+        if ax.get_legend():
+            # Adjust figure to make space for legend and move it
+            fig.tight_layout(rect=[0, 0, 0.8, 1])
+            ax.legend(bbox_to_anchor=(1.02, 1), loc='upper left')
     else:
+        # Fallback for single run
         edge_plot.plot(ax=ax, alpha=0.7)
 
     ax.set_title('Glacier Length Trajectories')
     ax.set_xlabel('Time (years)')
     ax.set_ylabel('Length (km)')
     ax.grid(True, linestyle='--', alpha=0.6)
-    plt.savefig(output_dir / 'sweep_qc_length.png', dpi=150)
+    plt.savefig(output_dir / 'sweep_qc_length.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
     # Plot 2: Glacier volume trajectories
@@ -152,14 +164,18 @@ def plot_sweep_qc(ds, output_dir):
     volume = (ds.h * ds.w * delx).sum(dim='x')
     fig, ax = plt.subplots(figsize=(10, 6))
     volume_plot = volume / 1e9
-    if volume_plot.ndim > 2:
-        # Stack non-time dimensions to plot all runs
-        non_time_dims = [dim for dim in volume_plot.dims if dim != 'time']
-        volume_plot = volume_plot.stack(run=non_time_dims)
 
-    if volume_plot.ndim > 1:
-        volume_plot.plot.line(ax=ax, x='time', add_legend=False, alpha=0.7)
+    if sweep_dims:
+        df_vol = volume_plot.to_dataframe(name='volume_km3').reset_index()
+        hue_dim = sweep_dims[0]
+        style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
+
+        sns.lineplot(
+            data=df_vol, x='time', y='volume_km3', hue=hue_dim,
+            style=style_dim, ax=ax, palette='viridis', legend=False
+        )
     else:
+        # Fallback for single run
         volume_plot.plot(ax=ax, alpha=0.7)
 
     ax.set_title('Glacier Volume Trajectories')
