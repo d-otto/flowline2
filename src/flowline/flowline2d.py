@@ -171,7 +171,7 @@ class flowline2d:
                         # Recreate config from attributes, filtering for valid FlowlineConfig fields
                         # to avoid issues with __post_init__ double-counting conversions.
                         spinup_config = FlowlineConfig()
-                        valid_config_keys = self.config.__annotations__.keys()
+                        valid_config_keys = FlowlineConfig.__annotations__.keys()
                         spinup_attrs = {k: v for k, v in ds_.attrs.items() if k in valid_config_keys}
                         for k, v in spinup_attrs.items():
                             setattr(spinup_config, k, v)
