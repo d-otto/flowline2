@@ -113,8 +113,7 @@ def calc_diag(res, t=(None, None)):
     diag.loc['b', 'std_025'] = diag.loc['b', 'std_975'] = np.nan
     try:
         diag.loc['T', 'std'] = res.T[tslice].mean(axis=1).std()
-        diag.loc['P', 'std'] = res.P[tslice].mean(axis=1).std()
-    except:
+    except AttributeError:
         pass
     diag.loc['L', 'mean'] = res.edge[tslice].mean()
     diag.loc['L', 'std'] = res.edge[tslice].std()
@@ -150,8 +149,7 @@ def calc_diag(res, t=(None, None)):
         0.95, df, loc=diag.loc['bacc', 'mean'], scale=diag.loc['bacc', 'std']
     )
     Habl = np.array([res.h[i, j[0] : j[1]].mean() for i, j in enumerate(zip(res.ela_idx[tslice], res.edge_idx[tslice]))])
-    w = res.w.reshape(1, -1).repeat(10000, 0)
-    wabl = np.array([w[i, j[0] : j[1]].mean() for i, j in enumerate(zip(res.ela_idx[tslice], res.edge_idx[tslice]))])
+    wabl = np.array([res.w[j[0] : j[1]].mean() for j in zip(res.ela_idx[tslice], res.edge_idx[tslice])])
     diag.loc['Habl', 'mean'] = Habl.mean()
     diag.loc['Habl', 'std'] = Habl.std()
     diag.loc['Habl', 'mean_025'], diag.loc['Habl', 'mean_975'] = sci.stats.t.interval(
@@ -162,7 +160,7 @@ def calc_diag(res, t=(None, None)):
     beta = res.area[tslice] / (Habl * wabl)
     diag.loc['beta', 'mean'] = beta.mean()
     diag.loc['beta', 'std'] = beta.std()
-    aar = np.array([w[i, 0:j].sum() * res.delx for i, j in enumerate(res.ela_idx[tslice])]) / res.area[tslice]
+    aar = np.array([res.w[0:j].sum() * res.config.delx for j in res.ela_idx[tslice]]) / res.area[tslice]
     diag.loc['aar', 'mean'] = aar.mean()
     diag.loc['aar', 'std'] = aar.std()
     return diag
