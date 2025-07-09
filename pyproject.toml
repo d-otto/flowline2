@@ -16,6 +16,10 @@ dependencies = [
     "pandas",
     "dill",
     "click",
+    "dask[distributed]",
+    "numba",
+    "pyyaml",
+    "seaborn",
 ]
 
 [build-system]

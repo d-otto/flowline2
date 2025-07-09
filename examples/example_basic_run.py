@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing, flowline2d)
 from flowline.geometry import FlowlineGeometry, create_uniform_slope
 from flowline import diagnostics as diag
+from flowline.visualization import plot_run_qc
 
 def main():
     # --- 1. Define Output Directory ---
@@ -81,39 +82,14 @@ def main():
     # --- 7. Save and Plot Results ---
     # Save the full results to a NetCDF file.
     result_path = output_dir / "basic_run_result.nc"
-    result.to_xarray().to_netcdf(result_path)
+    ds = result.to_xarray()
+    ds.to_netcdf(result_path)
     print(f"Results saved to {result_path}")
 
-    # Create a plot of the results.
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), gridspec_kw={'height_ratios': [2, 1]})
-    fig.suptitle("Basic Flowline Simulation", fontsize=16)
-
-    # Plot 1: Final glacier profile
-    ax = axes[0]
-    edge_idx = result.edge_idx[-1]
-    ax.plot(result.x / 1000, result.zb, 'k-', linewidth=2, label='Bed')
-    ax.fill_between(result.x[:edge_idx] / 1000, result.zb[:edge_idx],
-                    result.zb[:edge_idx] + result.h[-1, :edge_idx],
-                    alpha=0.7, color='lightblue', label='Ice (Final)')
-    ax.set_xlabel('Distance (km)')
-    ax.set_ylabel('Elevation (m)')
-    ax.set_title('Final Glacier Profile')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    # Plot 2: Length evolution over time
-    ax = axes[1]
-    ax.plot(result.t, result.edge / 1000, 'b-', linewidth=2)
-    ax.set_xlabel('Time (years)')
-    ax.set_ylabel('Glacier Length (km)')
-    ax.set_title('Length Evolution')
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plot_path = output_dir / "basic_run_plot.png"
-    plt.savefig(plot_path, dpi=150)
-    print(f"Plot saved to {plot_path}")
-    # plt.show()
+    # Create a standard QC plot for the run.
+    plot_path = output_dir / "basic_run_qc.png"
+    plot_run_qc(ds, plot_path)
+    print(f"QC plot saved to {plot_path}")
 
 if __name__ == "__main__":
     main()
