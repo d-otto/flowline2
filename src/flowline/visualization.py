@@ -38,6 +38,18 @@ def plot_run_qc(ds, output_path):
     """
     fig, axes = plt.subplots(2, 1, figsize=(10, 8), constrained_layout=True)
 
+    # Check if the run resulted in NaNs and create an error plot if so
+    if ds.h.isel(time=-1).isnull().all():
+        title = f"Run QC: {output_path.name.replace('.png', '')}"
+        fig.suptitle(title, fontsize=14)
+        axes[0].text(0.5, 0.5, 'Simulation Failed: Produced NaN values', 
+                     ha='center', va='center', color='red', fontsize=12, transform=axes[0].transAxes)
+        axes[0].axis('off')
+        axes[1].axis('off')
+        plt.savefig(output_path, dpi=150)
+        plt.close(fig)
+        return
+
     # Plot 1: Glacier length and volume over time
     ax = axes[0]
     # Length

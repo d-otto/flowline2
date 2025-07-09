@@ -27,7 +27,8 @@ def run_flowline_simulation(params_tuple):
         # Separate params for different components
         config_p = run_params.get('config', {})
         geometry_p = run_params.get('geometry', {})
-        forcing_p = run_params.get('forcing', {})
+        # Use a copy to prevent modifying the original run_params dict
+        forcing_p = run_params.get('forcing', {}).copy()
         
         # Instantiate Config
         config = FlowlineConfig(**config_p)
