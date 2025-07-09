@@ -185,52 +185,60 @@ def plot_sweep_qc(ds, output_dir):
     plt.savefig(output_dir / 'sweep_qc_volume.png', dpi=150)
     plt.close(fig)
 
-    # Plot 3: Glacier length change trajectories
+    # Plot 3: Cumulative fractional length change
     fig, ax = plt.subplots(figsize=(10, 6))
-    edge_change = (ds.edge - ds.edge.isel(time=0)) / 1e3
+    edge_initial = ds.edge.isel(time=0)
+    edge_change = ds.edge - edge_initial
+    total_edge_change = ds.edge.isel(time=-1) - edge_initial
+    frac_edge_change = xr.where(total_edge_change != 0, edge_change / total_edge_change, 0)
 
     if sweep_dims:
-        df_edge_change = edge_change.to_dataframe(name='length_change_km').reset_index()
+        df_edge_change = frac_edge_change.to_dataframe(name='frac_length_change').reset_index()
         hue_dim = sweep_dims[0]
         style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
 
         sns.lineplot(
-            data=df_edge_change, x='time', y='length_change_km', hue=hue_dim,
+            data=df_edge_change, x='time', y='frac_length_change', hue=hue_dim,
             style=style_dim, ax=ax, palette='viridis', legend=False
         )
     else:
         # Fallback for single run
-        edge_change.plot(ax=ax, alpha=0.7)
+        frac_edge_change.plot(ax=ax, alpha=0.7)
 
-    ax.set_title('Glacier Length Change Trajectories')
+    ax.set_title('Cumulative Fractional Length Change')
     ax.set_xlabel('Time (years)')
-    ax.set_ylabel('Length Change (km)')
+    ax.set_ylabel('Fractional Change')
+    ax.set_ylim(0, 1)
     ax.grid(True, linestyle='--', alpha=0.6)
-    plt.savefig(output_dir / 'sweep_qc_length_change.png', dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / 'sweep_qc_frac_length_change.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
 
-    # Plot 4: Glacier volume change trajectories
+    # Plot 4: Cumulative fractional volume change
     fig, ax = plt.subplots(figsize=(10, 6))
-    volume_change = (volume - volume.isel(time=0)) / 1e9
+    volume_initial = volume.isel(time=0)
+    volume_change = volume - volume_initial
+    total_volume_change = volume.isel(time=-1) - volume_initial
+    frac_volume_change = xr.where(total_volume_change != 0, volume_change / total_volume_change, 0)
 
     if sweep_dims:
-        df_vol_change = volume_change.to_dataframe(name='volume_change_km3').reset_index()
+        df_vol_change = frac_volume_change.to_dataframe(name='frac_volume_change').reset_index()
         hue_dim = sweep_dims[0]
         style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
 
         sns.lineplot(
-            data=df_vol_change, x='time', y='volume_change_km3', hue=hue_dim,
+            data=df_vol_change, x='time', y='frac_volume_change', hue=hue_dim,
             style=style_dim, ax=ax, palette='viridis', legend=False
         )
     else:
         # Fallback for single run
-        volume_change.plot(ax=ax, alpha=0.7)
+        frac_volume_change.plot(ax=ax, alpha=0.7)
 
-    ax.set_title('Glacier Volume Change Trajectories')
+    ax.set_title('Cumulative Fractional Volume Change')
     ax.set_xlabel('Time (years)')
-    ax.set_ylabel('Volume Change (km^3)')
+    ax.set_ylabel('Fractional Change')
+    ax.set_ylim(0, 1)
     ax.grid(True, linestyle='--', alpha=0.6)
-    plt.savefig(output_dir / 'sweep_qc_volume_change.png', dpi=150)
+    plt.savefig(output_dir / 'sweep_qc_frac_volume_change.png', dpi=150)
     plt.close(fig)
 
     print(f"Sweep QC plots saved in: {output_dir}")
