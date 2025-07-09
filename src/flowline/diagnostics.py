@@ -137,8 +137,8 @@ def calc_diag(res, t=(None, None)):
     diag.loc['ELA', 'mean_025'], diag.loc['ELA', 'mean_975'] = sci.stats.t.interval(
         0.95, df, loc=diag.loc['ELA', 'mean'], scale=diag.loc['ELA', 'std']
     )
-    babl = np.array([res.b[i, j[0] : j[1]].mean() for i, j in enumerate(zip(res.ela_idx[tslice], res.edge_idx[tslice]))])
-    bacc = np.array([res.b[i, :j].mean() for i, j in enumerate(res.ela_idx[tslice])])
+    babl = np.array([res.b_profile[i, j[0] : j[1]].mean() for i, j in enumerate(zip(res.ela_idx[tslice], res.edge_idx[tslice]))])
+    bacc = np.array([res.b_profile[i, :j].mean() for i, j in enumerate(res.ela_idx[tslice])])
     diag.loc['babl', 'mean'] = np.nanmean(babl)
     diag.loc['bacc', 'mean'] = np.nanmean(bacc)
     diag.loc['babl', 'std'] = np.nanstd(babl)
