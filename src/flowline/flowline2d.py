@@ -44,105 +44,27 @@ from .utils import FlowlineModelError, GeometryError, NumericalInstabilityError
 
 
 class flowline2d:
-    def __init__(self, config=None, geometry=None, forcing=None, **kwargs):
+    def __init__(self, config, geometry, forcing):
         """2d flowline model with modular configuration
-        
+
         Parameters
         ----------
-        config : FlowlineConfig, optional
+        config : FlowlineConfig
             Model configuration parameters
-        geometry : FlowlineGeometry, optional  
+        geometry : FlowlineGeometry
             Glacier geometry setup
-        forcing : MassBalanceForcing, optional
+        forcing : MassBalanceForcing
             Mass balance forcing method
-        **kwargs : dict
-            Additional parameters for backward compatibility
         """
-        
-        # Handle backward compatibility
-        if config is None or geometry is None or forcing is None:
-            return self._init_legacy(**kwargs)
-        
+
         self.config = config
         self.geometry = geometry
         self.forcing = forcing
         self.no_error = True
-        
+
         # Setup model
         self._setup_model()
 
-    def _init_legacy(self, **kwargs):
-        """Legacy initialization for backward compatibility"""
-        # Extract required parameters
-        x_gr = kwargs.pop('x_gr')
-        zb_gr = kwargs.pop('zb_gr') 
-        w_geom = kwargs.pop('w_geom')
-        mode = kwargs.pop('mode', 'TP')
-        
-        # Create config from kwargs
-        config_params = {}
-        for key in ['rho', 'g', 'fd', 'fs', 'n', 'k', 'delx', 'delt', 'ts', 'tf', 
-                   'min_thick', 'deltout', 'dt_plot', 'rt_plot', 'xlim0', 'gamma', 'mu', 'hmb']:
-            if key in kwargs:
-                config_params[key] = kwargs.pop(key)
-        
-        self.config = FlowlineConfig(**config_params)
-        
-        # Create geometry
-        self.geometry = FlowlineGeometry(
-            x_gr, zb_gr, w_geom,
-            x_init=kwargs.get('x_init') or kwargs.get('x_geom'),
-            h_init=kwargs.get('h_init') or kwargs.get('h_geom'),
-            profile=kwargs.get('profile')
-        )
-        
-        # Create forcing based on mode
-        if mode == 'TP':
-            self.forcing = TemperaturePrecipitationForcing(
-                T0=kwargs.get('T0'), P0=kwargs.get('P0'),
-                sigT=kwargs.get('sigT', 1), sigP=kwargs.get('sigP', 1),
-                T=kwargs.get('T'), P=kwargs.get('P'), temp=kwargs.get('temp'),
-                t_stab=kwargs.get('t_stab'), mu=self.config.mu, gamma=self.config.gamma,
-                dpdz=kwargs.get('dpdz'), T2melt=kwargs.get('T2melt'),
-                pdd_Tamp=kwargs.get('pdd_Tamp'), pdd_beta=kwargs.get('pdd_beta'),
-                ts=self.config.ts, tf=self.config.tf
-            )
-        elif mode == 'b':
-            # Combine bp and bal for backward compatibility
-            bp_combined = kwargs.get('bp')
-            bal = kwargs.get('bal')
-            
-            if bp_combined is not None and bal is not None:
-                # If both exist, add them together
-                if np.isscalar(bp_combined) and np.isscalar(bal):
-                    bp_final = bp_combined + bal
-                else:
-                    bp_combined = np.atleast_1d(bp_combined)
-                    bal = np.atleast_1d(bal)
-                    # Ensure same length, pad with zeros if needed
-                    max_len = max(len(bp_combined), len(bal))
-                    bp_padded = np.pad(bp_combined, (0, max_len - len(bp_combined)), 'constant')
-                    bal_padded = np.pad(bal, (0, max_len - len(bal)), 'constant')
-                    bp_final = bp_padded + bal_padded
-            elif bp_combined is not None:
-                bp_final = bp_combined
-            elif bal is not None:
-                bp_final = bal
-            else:
-                bp_final = None
-            
-            self.forcing = DirectMassBalanceForcing(
-                b0=kwargs.get('b0', 0),
-                bp=bp_final,
-                dbdz=kwargs.get('bz'),  # Rename bz to dbdz for clarity
-                dbdx=kwargs.get('bx')   # Rename bx to dbdx for clarity
-            )
-        else:
-            raise ValueError(f"Unknown mode: {mode}")
-        
-        self.no_error = True
-        self._setup_model()
-    
     def _setup_model(self):
         """Setup model grid, geometry, and output arrays"""
         from pathlib import Path
