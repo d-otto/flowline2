@@ -4,12 +4,81 @@ import scipy as sci
 import numba as nb
 from functools import partial
 
+@nb.njit()
 def calc_ela(P0, T0, gamma, mu, h=None):
-    # this seems to be accurate with elev mb feedback??
-    if np.asarray(h).any():  # idk if this part is right
-        T0 = T0 - h * gamma
-    ela = T0 / gamma - P0 / (mu * gamma)
+    """
+    Calculate Equilibrium Line Altitude
+    
+    Parameters:
+    -----------
+    P0 : float/array
+        Winter accumulation (mm w.e.)
+    T0 : float/array  
+        Melt-season temperature at sea level (°C)
+    gamma : float/array
+        Temperature lapse rate (°C/km)
+    mu : float/array
+        Melt factor (m/°C/yr)
+    h : float/array, optional
+        Elevation of glacier surface (m)
+        
+    Returns:
+    --------
+    ela : float/array
+        Equilibrium Line Altitude (m)
+    """
+    # Convert gamma from C/km to C/m for calculations
+    gamma_m = gamma / 1000
+    
+    # Convert P0 from mm to m for consistent units with mu
+    P0_m = P0 / 1000
+    
+    # Adjust temperature for elevation if provided
+    if h is not None:
+        T0_adj = T0 - h * gamma_m
+    else:
+        T0_adj = T0
+        
+    # Calculate ELA (mu is in m/°C/yr, P0_m is in m/yr)
+    ela = T0_adj / gamma_m - P0_m / (mu * gamma_m)
     return ela
+
+
+@nb.njit()
+def calc_mass_balance(h, P0, T0, gamma, mu):
+    """
+    Calculate mass balance at given elevation
+    
+    Parameters:
+    -----------
+    h : float/array
+        Elevation (m)
+    P0 : float/array
+        Winter accumulation (mm w.e.)
+    T0 : float/array
+        Melt-season temperature at sea level (°C)
+    gamma : float/array
+        Temperature lapse rate (°C/km)
+    mu : float/array
+        Melt factor (m/°C/yr)
+        
+    Returns:
+    --------
+    mass_balance : float/array
+        Annual mass balance (m w.e./yr)
+    """
+    gamma_m = gamma / 1000  # Convert C/km to C/m
+    T_h = T0 - h * gamma_m  # Temperature at elevation h
+    
+    # Convert P0 from mm to m for consistent units
+    P0_m = P0 / 1000
+    
+    # Simple mass balance model: accumulation - melt
+    # Melt only occurs when temperature > 0
+    melt = np.maximum(0, mu * T_h)  # mu is in m/°C/yr
+    mass_balance = P0_m - melt  # Both in m w.e./yr
+    
+    return mass_balance
 
 def calc_Leq(A, w, bt, db, L=None):
     if np.ndim(w) != 0:
@@ -35,7 +104,7 @@ def calc_diag(res, t=(None, None)):
 
     diag = pd.DataFrame(dtype=float, columns=['mean', 'std', 'mean_025', 'mean_975', 'std_025', 'std_975'])
     df = len(res.edge)
-    b = res.gwb / res.area
+    b = res.total_mass_balance / res.area
     diag.loc['b', 'mean'] = b[tslice].mean()
     diag.loc['b', 'std'] = b[tslice].std()
     diag.loc['b', 'mean_025'], diag.loc['b', 'mean_975'] = sci.stats.t.interval(

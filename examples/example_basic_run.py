@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 # --- Import Flowline Components ---
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing, flowline2d)
 from flowline.geometry import FlowlineGeometry, create_uniform_slope
+from flowline import diagnostics as diag
 
 def main():
     # --- 1. Define Output Directory ---
@@ -70,7 +71,14 @@ def main():
     result = model.run()
     print("Model run complete.")
 
-    # --- 6. Save and Plot Results ---
+    # --- 6. Calculate and Print Diagnostic Statistics ---
+    # The diagnostics module provides tools for analyzing model output.
+    diag_stats = diag.calc_diag(result)
+    print("\n--- Diagnostic Statistics ---")
+    print(diag_stats)
+    print("---------------------------\n")
+
+    # --- 7. Save and Plot Results ---
     # Save the full results to a NetCDF file.
     result_path = output_dir / "basic_run_result.nc"
     result.to_xarray().to_netcdf(result_path)

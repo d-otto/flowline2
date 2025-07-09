@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing,
                                DirectMassBalanceForcing, flowline2d)
 from flowline.geometry import FlowlineGeometry, create_uniform_slope
+from flowline.diagnostics import calc_ela
 
 def run_spinup(config, geometry, forcing):
     """Helper function to run the model to a steady state."""
@@ -111,8 +112,20 @@ def main():
         model = flowline2d(config=exp_config, geometry=geometry, forcing=forcing)
         results[name] = model.run()
     print("All simulations complete.")
+
+    # --- 5. Diagnostic ELA Calculation ---
+    # Use the diagnostic tools to calculate the ELA for the control scenario.
+    # Note: P0 and gamma must be converted to units expected by calc_ela (mm and °C/km).
+    control_params = scenarios['Control (T-P)']['params']
+    diag_ela = calc_ela(
+        P0=control_params['P0'] * 1000, # m -> mm
+        T0=control_params['T0'],
+        gamma=control_params['gamma'] * 1000, # C/m -> C/km
+        mu=control_params['mu']
+    )
+    print(f"\nDiagnostic ELA Calculation (for Control scenario): {diag_ela:.2f} m")
     
-    # --- 5. Create Comparison Plots ---
+    # --- 6. Create Comparison Plots ---
     fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
     fig.suptitle("Mass Balance Forcing Comparison", fontsize=16)
 
