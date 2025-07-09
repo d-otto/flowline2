@@ -185,4 +185,52 @@ def plot_sweep_qc(ds, output_dir):
     plt.savefig(output_dir / 'sweep_qc_volume.png', dpi=150)
     plt.close(fig)
 
+    # Plot 3: Glacier length change trajectories
+    fig, ax = plt.subplots(figsize=(10, 6))
+    edge_change = (ds.edge - ds.edge.isel(time=0)) / 1e3
+
+    if sweep_dims:
+        df_edge_change = edge_change.to_dataframe(name='length_change_km').reset_index()
+        hue_dim = sweep_dims[0]
+        style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
+
+        sns.lineplot(
+            data=df_edge_change, x='time', y='length_change_km', hue=hue_dim,
+            style=style_dim, ax=ax, palette='viridis', legend=False
+        )
+    else:
+        # Fallback for single run
+        edge_change.plot(ax=ax, alpha=0.7)
+
+    ax.set_title('Glacier Length Change Trajectories')
+    ax.set_xlabel('Time (years)')
+    ax.set_ylabel('Length Change (km)')
+    ax.grid(True, linestyle='--', alpha=0.6)
+    plt.savefig(output_dir / 'sweep_qc_length_change.png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+
+    # Plot 4: Glacier volume change trajectories
+    fig, ax = plt.subplots(figsize=(10, 6))
+    volume_change = (volume - volume.isel(time=0)) / 1e9
+
+    if sweep_dims:
+        df_vol_change = volume_change.to_dataframe(name='volume_change_km3').reset_index()
+        hue_dim = sweep_dims[0]
+        style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
+
+        sns.lineplot(
+            data=df_vol_change, x='time', y='volume_change_km3', hue=hue_dim,
+            style=style_dim, ax=ax, palette='viridis', legend=False
+        )
+    else:
+        # Fallback for single run
+        volume_change.plot(ax=ax, alpha=0.7)
+
+    ax.set_title('Glacier Volume Change Trajectories')
+    ax.set_xlabel('Time (years)')
+    ax.set_ylabel('Volume Change (km^3)')
+    ax.grid(True, linestyle='--', alpha=0.6)
+    plt.savefig(output_dir / 'sweep_qc_volume_change.png', dpi=150)
+    plt.close(fig)
+
     print(f"Sweep QC plots saved in: {output_dir}")
