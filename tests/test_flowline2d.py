@@ -25,7 +25,6 @@ from pathlib import Path
 import warnings
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import dill
 import copy
 
 # Import the module under test
@@ -76,12 +75,11 @@ def ss_result_uniform():
     bed_type = 'uniform'
     cache_dir = QC_FIGURE_DIR / "test_cache"
     cache_dir.mkdir(exist_ok=True)
-    cache_path = cache_dir / f"steady_state_{bed_type}.pkl"
+    cache_path = cache_dir / f"steady_state_{bed_type}.nc"
 
     if cache_path.exists():
-        with open(cache_path, 'rb') as f:
-            print(f"\nLoading cached steady-state from {cache_path}")
-            return dill.load(f)
+        print(f"\nLoading cached steady-state from {cache_path}")
+        return xr.open_dataset(cache_path)
 
     print("\nGenerating new steady-state profile for tests...")
     # Config for a long spin-up run
@@ -108,10 +106,11 @@ def ss_result_uniform():
     model_ss = flowline2d(config=ss_config, geometry=geometry, forcing=forcing)
     result_ss = model_ss.run()
     
-    result_ss.to_pickle(cache_path)
+    ds = result_ss.to_xarray()
+    ds.to_netcdf(cache_path)
     print(f"Cached new steady-state profile to {cache_path}")
 
-    return result_ss
+    return ds
 
 
 class TestGeometry:
@@ -265,11 +264,11 @@ class TestSteadyStateInitialization:
         
         # Plot 1: Final ice thickness profile
         ax = axes[0, 0]
-        edge_idx = result.edge_idx[-1]
-        ax.fill_between(result.x[:edge_idx]/1000, result.zb[:edge_idx], 
-                       result.zb[:edge_idx] + result.h[-1, :edge_idx], 
+        edge_idx = result['edge_idx'].values[-1]
+        ax.fill_between(result['x'].values[:edge_idx]/1000, result['zb'].values[:edge_idx], 
+                       result['zb'].values[:edge_idx] + result['h'].values[-1, :edge_idx], 
                        alpha=0.7, color='lightblue', label='Ice')
-        ax.plot(result.x/1000, result.zb, 'k-', linewidth=2, label='Bed')
+        ax.plot(result['x'].values/1000, result['zb'].values, 'k-', linewidth=2, label='Bed')
         ax.set_xlabel('Distance (km)')
         ax.set_ylabel('Elevation (m)')
         ax.set_title('Final Ice Thickness Profile')
@@ -278,7 +277,7 @@ class TestSteadyStateInitialization:
         
         # Plot 2: Length evolution
         ax = axes[0, 1]
-        ax.plot(result.t, result.edge/1000, 'b-', linewidth=2)
+        ax.plot(result['time'].values, result['edge'].values/1000, 'b-', linewidth=2)
         ax.set_xlabel('Time (years)')
         ax.set_ylabel('Glacier Length (km)')
         ax.set_title('Length Evolution')
@@ -286,8 +285,8 @@ class TestSteadyStateInitialization:
         
         # Plot 3: Mass balance profile
         ax = axes[1, 0]
-        if hasattr(result, 'b_profile') and result.b_profile is not None:
-            ax.plot(result.x[:edge_idx]/1000, result.b_profile[-1, :edge_idx], 'r-', linewidth=2)
+        if 'b_profile' in result:
+            ax.plot(result['x'].values[:edge_idx]/1000, result['b_profile'].values[-1, :edge_idx], 'r-', linewidth=2)
             ax.axhline(y=0, color='k', linestyle='--', alpha=0.5)
             ax.set_xlabel('Distance (km)')
             ax.set_ylabel('Mass Balance (m/yr)')
@@ -297,8 +296,8 @@ class TestSteadyStateInitialization:
         # Plot 4: Area and ELA evolution
         ax = axes[1, 1]
         ax2 = ax.twinx()
-        line1 = ax.plot(result.t, result.area/1e6, 'g-', linewidth=2, label='Area')
-        line2 = ax2.plot(result.t, result.ela, 'orange', linewidth=2, label='ELA')
+        line1 = ax.plot(result['time'].values, result['area'].values/1e6, 'g-', linewidth=2, label='Area')
+        line2 = ax2.plot(result['time'].values, result['ela'].values, 'orange', linewidth=2, label='ELA')
         ax.set_xlabel('Time (years)')
         ax.set_ylabel('Area (km²)', color='g')
         ax2.set_ylabel('ELA (m)', color='orange')
@@ -316,15 +315,15 @@ class TestSteadyStateInitialization:
     
     def test_steady_state_convergence(self, ss_result_uniform):
         """Test that model reaches steady state"""
-        result = ss_result_uniform
+        ds = ss_result_uniform
         
         # Create QC figure
-        self._create_qc_figure(result, 
+        self._create_qc_figure(ds, 
                               'Steady State Convergence Test', 
                               'steady_state_convergence.png')
         
         # Check that length has stabilized (last 50 years should be relatively stable)
-        final_lengths = result.edge[-50:]
+        final_lengths = ds['edge'].values[-50:]
         length_std = np.std(final_lengths)
         mean_length = np.mean(final_lengths)
         
@@ -407,10 +406,16 @@ class TestMassBalanceResponses:
     
     def test_step_change_symmetry(self, test_config, ss_result_uniform):
         """Test that +/- mass balance changes produce symmetric length responses"""
-        ss_result = ss_result_uniform
+        ss_ds = ss_result_uniform
         
         # This is the steady-state mass balance profile
-        ss_b_profile = ss_result.b_profile[-1, :]
+        ss_b_profile = ss_ds['b_profile'].isel(time=-1).values
+        h_init = ss_ds['h'].isel(time=-1).values
+
+        # Get geometry from dataset attributes
+        x_gr = np.array(ss_ds.attrs['x_gr'])
+        zb_gr = np.array(ss_ds.attrs['zb_gr'])
+        w_geom = np.array(ss_ds.attrs['w_geom'])
         
         # Test positive step change
         bp_pos = np.zeros(int(np.ceil(test_config.tf - test_config.ts)))
@@ -420,7 +425,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_pos
         )
         geometry_pos = FlowlineGeometry(
-            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+            x_gr, zb_gr, w_geom, h_init=h_init
         )
         model_pos = flowline2d(config=test_config, geometry=geometry_pos, forcing=forcing_pos)
         result_pos = model_pos.run()
@@ -433,7 +438,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_neg
         )
         geometry_neg = FlowlineGeometry(
-            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+            x_gr, zb_gr, w_geom, h_init=h_init
         )
         model_neg = flowline2d(config=test_config, geometry=geometry_neg, forcing=forcing_neg)
         result_neg = model_neg.run()
@@ -443,10 +448,10 @@ class TestMassBalanceResponses:
         fig.suptitle('Debug: Step Change Symmetry Profiles', fontsize=14)
 
         # Plot initial steady-state profile
-        ss_edge_idx = ss_result.edge_idx[-1]
-        ax.plot(ss_result.x / 1000, ss_result.zb, 'k-', linewidth=2, label='Bed')
-        ax.plot(ss_result.x[:ss_edge_idx] / 1000, 
-                ss_result.zb[:ss_edge_idx] + ss_result.h[-1, :ss_edge_idx],
+        ss_edge_idx = ss_ds['edge_idx'].values[-1]
+        ax.plot(ss_ds['x'].values / 1000, ss_ds['zb'].values, 'k-', linewidth=2, label='Bed')
+        ax.plot(ss_ds['x'].values[:ss_edge_idx] / 1000, 
+                ss_ds['zb'].values[:ss_edge_idx] + ss_ds['h'].isel(time=-1).values[:ss_edge_idx],
                 'g--', linewidth=2, label='Initial Steady State')
 
         # Plot final profile for positive step
@@ -500,10 +505,14 @@ class TestMassBalanceResponses:
         wn_config.delt = 0.0125/4
         wn_config.min_thick = 5  # minimum ice thickness is 5 meters
 
-        ss_result = ss_result_uniform
+        ss_ds = ss_result_uniform
         
         # This is the steady-state mass balance profile
-        ss_b_profile = ss_result.b_profile[-1, :]
+        ss_b_profile = ss_ds['b_profile'].isel(time=-1).values
+        h_init = ss_ds['h'].isel(time=-1).values
+        x_gr = np.array(ss_ds.attrs['x_gr'])
+        zb_gr = np.array(ss_ds.attrs['zb_gr'])
+        w_geom = np.array(ss_ds.attrs['w_geom'])
         
         # Create white noise mass balance
         np.random.seed(42)  # For reproducible tests
@@ -514,7 +523,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_noise
         )
         geometry = FlowlineGeometry(
-            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+            x_gr, zb_gr, w_geom, h_init=h_init
         )
         model = flowline2d(config=wn_config, geometry=geometry, forcing=forcing)
         result = model.run()
@@ -553,12 +562,12 @@ class TestMassBalanceResponses:
         # Plot 4: Thickness profile distribution
         ax = axes[1, 1]
         # Initial steady state profile
-        ss_edge_idx = ss_result.edge_idx[-1]
-        ax.fill_between(ss_result.x[:ss_edge_idx]/1000, 
-                        ss_result.zb[:ss_edge_idx],
-                        ss_result.zb[:ss_edge_idx] + ss_result.h[-1, :ss_edge_idx],
+        ss_edge_idx = ss_ds['edge_idx'].values[-1]
+        ax.fill_between(ss_ds['x'].values[:ss_edge_idx]/1000, 
+                        ss_ds['zb'].values[:ss_edge_idx],
+                        ss_ds['zb'].values[:ss_edge_idx] + ss_ds['h'].isel(time=-1).values[:ss_edge_idx],
                         color='gray', alpha=0.3, label='Initial State')
-        ax.plot(ss_result.x/1000, ss_result.zb, 'k-', linewidth=0.5)
+        ax.plot(ss_ds['x'].values/1000, ss_ds['zb'].values, 'k-', linewidth=0.5)
 
         # Percentile profiles
         h_profiles = result.h[50:, :] 
@@ -604,11 +613,15 @@ class TestMassBalanceResponses:
     
     def test_linear_trend_response(self, test_config, ss_result_uniform):
         """Test glacier response to linear mass balance trend"""
-        ss_result = ss_result_uniform
+        ss_ds = ss_result_uniform
         
         # This is the steady-state mass balance profile
-        ss_b_profile = ss_result.b_profile[-1, :]
-        
+        ss_b_profile = ss_ds['b_profile'].isel(time=-1).values
+        h_init = ss_ds['h'].isel(time=-1).values
+        x_gr = np.array(ss_ds.attrs['x_gr'])
+        zb_gr = np.array(ss_ds.attrs['zb_gr'])
+        w_geom = np.array(ss_ds.attrs['w_geom'])
+
         # Create linear trend: 0 to -1 m/yr over 100 years, then steady
         nyears = int(np.ceil(test_config.tf - test_config.ts))
         bp_trend = np.zeros(nyears)
@@ -624,7 +637,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_trend
         )
         geometry = FlowlineGeometry(
-            ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+            x_gr, zb_gr, w_geom, h_init=h_init
         )
         model = flowline2d(config=test_config, geometry=geometry, forcing=forcing)
         result = model.run()
@@ -701,6 +714,9 @@ class TestNumericalSensitivity:
     
     def test_grid_resolution_sensitivity(self, ss_result_uniform):
         """Test that results are consistent across different grid resolutions"""
+        ss_ds = ss_result_uniform
+        h_init = ss_ds['h'].isel(time=-1).values
+
         # Base configuration
         # Timestep delt must be scaled with delx to maintain stability.
         # A common scaling for this type of problem is delt ~ delx^2.
@@ -710,22 +726,22 @@ class TestNumericalSensitivity:
         config_coarse = FlowlineConfig(delx=50, delt=base_delt*4, ts=0, tf=100)
         
         # Use geometry from the steady-state fixture
-        x_gr = ss_result_uniform.x_gr
-        zb_gr = ss_result_uniform.zb_gr
-        w_geom = ss_result_uniform.w_geom
+        x_gr = np.array(ss_ds.attrs['x_gr'])
+        zb_gr = np.array(ss_ds.attrs['zb_gr'])
+        w_geom = np.array(ss_ds.attrs['w_geom'])
 
         # Use the same forcing that created the steady state, so glacier is near equilibrium
         forcing_params = {
-            'T0': ss_result_uniform.forcing.T0,
-            'P0': ss_result_uniform.forcing.P0,
-            'gamma': ss_result_uniform.forcing.gamma,
-            'mu': ss_result_uniform.forcing.mu
+            'T0': ss_ds.attrs['T0'],
+            'P0': ss_ds.attrs['P0'],
+            'gamma': ss_ds.attrs['gamma'],
+            'mu': ss_ds.attrs['mu']
         }
         
         # Run models with different resolutions
         results = {}
         for name, config in [('base', config_base), ('fine', config_fine), ('coarse', config_coarse)]:
-            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, profile=ss_result_uniform)
+            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h_init=h_init)
             
             # Ensure forcing uses the correct time range for this config
             run_forcing_params = forcing_params.copy()
@@ -755,8 +771,12 @@ class TestNumericalSensitivity:
     def test_timestep_sensitivity(self, ss_result_uniform):
         """Test that results are consistent across different time steps"""
         # Get a steady state profile to start from
-        ss_result = ss_result_uniform
-        ss_b_profile = ss_result.b_profile[-1, :]
+        ss_ds = ss_result_uniform
+        ss_b_profile = ss_ds['b_profile'].isel(time=-1).values
+        h_init = ss_ds['h'].isel(time=-1).values
+        x_gr = np.array(ss_ds.attrs['x_gr'])
+        zb_gr = np.array(ss_ds.attrs['zb_gr'])
+        w_geom = np.array(ss_ds.attrs['w_geom'])
 
         # Define time steps to test
         base_delt = 0.0125
@@ -772,7 +792,7 @@ class TestNumericalSensitivity:
             config = FlowlineConfig(delx=25, delt=delt, ts=0, tf=nyears, deltout=5)
             forcing = DirectMassBalanceForcing(b0=ss_b_profile, bp=bp_step)
             geometry = FlowlineGeometry(
-                ss_result.x_gr, ss_result.zb_gr, ss_result.w_geom, profile=ss_result
+                x_gr, zb_gr, w_geom, h_init=h_init
             )
             model = flowline2d(config=config, geometry=geometry, forcing=forcing)
             try:
@@ -1174,15 +1194,20 @@ class TestOutputFormats:
         assert 'delx' in ds.attrs
         assert 'delt' in ds.attrs
     
-    def test_pickle_serialization(self, sample_result):
-        """Test pickle serialization and deserialization"""
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pkl') as tmp:
+    def test_xarray_serialization(self, sample_result):
+        """Test xarray serialization and deserialization to NetCDF"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.nc') as tmp:
             try:
-                sample_result.to_pickle(tmp.name)
+                ds = sample_result.to_xarray()
+                ds.to_netcdf(tmp.name)
                 
                 # File should exist and have content
                 assert os.path.exists(tmp.name)
                 assert os.path.getsize(tmp.name) > 0
+                
+                # Load back and check for data integrity
+                loaded_ds = xr.open_dataset(tmp.name)
+                xr.testing.assert_allclose(ds, loaded_ds)
                 
             finally:
                 # Clean up
@@ -1314,10 +1339,10 @@ class TestFeatures:
     def test_profile_export_import(self, ss_result_uniform):
         """Test that a steady-state profile can be exported and re-imported."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            profile_path = Path(tmpdir) / "ss_profile.pkl"
+            profile_path = Path(tmpdir) / "ss_profile.nc"
 
-            # 1. Export the steady-state result to a pickle file
-            ss_result_uniform.to_pickle(profile_path)
+            # 1. Export the steady-state result to a NetCDF file
+            ss_result_uniform.to_netcdf(profile_path)
             assert profile_path.exists()
 
             # 2. Setup a new run using the exported profile
@@ -1327,15 +1352,15 @@ class TestFeatures:
 
             # Use DirectMassBalanceForcing with a small positive perturbation.
             # The base b0 is the final mass balance profile from the steady-state run.
-            ss_b_profile = ss_result_uniform.b_profile[-1, :]
+            ss_b_profile = ss_result_uniform['b_profile'].isel(time=-1).values
             forcing = DirectMassBalanceForcing(b0=ss_b_profile, bp=0.1)
 
             # Initialize geometry using the original grid but loading the initial
             # thickness profile from the exported file.
             geometry = FlowlineGeometry(
-                x_gr=ss_result_uniform.x_gr,
-                zb_gr=ss_result_uniform.zb_gr,
-                w_geom=ss_result_uniform.w_geom,
+                x_gr=np.array(ss_result_uniform.attrs['x_gr']),
+                zb_gr=np.array(ss_result_uniform.attrs['zb_gr']),
+                w_geom=np.array(ss_result_uniform.attrs['w_geom']),
                 profile=profile_path
             )
 
@@ -1363,10 +1388,10 @@ class TestFeatures:
 
         # Plot 1: Initial vs Final ice thickness
         ax = axes[0, 0]
-        # Initial steady-state profile
-        ss_edge_idx = initial_result.edge_idx[-1]
-        ax.plot(initial_result.x[:ss_edge_idx]/1000, 
-                initial_result.zb[:ss_edge_idx] + initial_result.h[-1, :ss_edge_idx],
+        # Initial steady-state profile (from dataset)
+        ss_edge_idx = initial_result['edge_idx'].values[-1]
+        ax.plot(initial_result['x'].values[:ss_edge_idx]/1000, 
+                initial_result['zb'].values[:ss_edge_idx] + initial_result['h'].isel(time=-1).values[:ss_edge_idx],
                 'g--', linewidth=2, label='Initial State (from file)')
         
         # Final state after perturbation

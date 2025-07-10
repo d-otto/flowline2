@@ -336,8 +336,10 @@ class flowline2d:
         config_dict = asdict(self.config)
         # Filter out None values, as they are not supported by netCDF attributes
         attrs = {k: v for k, v in config_dict.items() if v is not None}
-        # Store the original x_gr grid as a numpy array attribute
+        # Store the original geometry grid as numpy array attributes
         attrs['x_gr'] = self.x_gr
+        attrs['zb_gr'] = self.zb_gr
+        attrs['w_geom'] = self.w_geom
 
         ds = xr.Dataset(
             data_vars=data_vars,
