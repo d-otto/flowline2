@@ -18,10 +18,22 @@ import matplotlib.pyplot as plt
 import tempfile
 import os
 import numpy as np
+import argparse
 
 from flowline.sweep import FlowlineSweep
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Run a programmatic flowline model parameter sweep."
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default=str(Path(__file__).parent / "example_outputs" / "sweep_example_output"),
+        help="Directory to save sweep results."
+    )
+    args = parser.parse_args()
+
     # --- 1. Define Sweep Configuration as a Python Dictionary ---
     # This configuration is similar to `sweep_config.yml` but defined in code.
     # We will sweep over the melt factor `mu` and the temperature lapse rate `gamma`.
@@ -54,7 +66,7 @@ def main():
     }
 
     # --- 2. Set Up Temporary Config File and Output Directory ---
-    output_dir = Path(__file__).parent / "example_outputs" / "sweep_example_output"
+    output_dir = Path(args.output_dir)
     
     # Using a temporary file for the config is a clean way to pass it to FlowlineSweep
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yml', dir='.') as tmp:
