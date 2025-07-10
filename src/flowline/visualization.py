@@ -38,7 +38,7 @@ def plot_run_qc(ds, output_path):
     output_path : str or Path
         Path to save the plot figure.
     """
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), constrained_layout=True)
+    fig, axes = plt.subplots(3, 1, figsize=(10, 12), constrained_layout=True)
 
     # Check if the run resulted in NaNs and create an error plot if so
     if ds.h.isel(time=-1).isnull().all():
@@ -48,6 +48,7 @@ def plot_run_qc(ds, output_path):
                      ha='center', va='center', color='red', fontsize=12, transform=axes[0].transAxes)
         axes[0].axis('off')
         axes[1].axis('off')
+        axes[2].axis('off')
         plt.savefig(output_path, dpi=150)
         plt.close(fig)
         return
@@ -72,8 +73,20 @@ def plot_run_qc(ds, output_path):
     ax2.legend(lines + lines2, labels + labels2, loc='best')
     ax.set_title('Glacier Evolution')
 
-    # Plot 2: Final ice thickness profile
+    # Plot 2: Total mass balance over time
     ax = axes[1]
+    if 'F' in ds:
+        total_mb = (ds.F * ds.w * ds.attrs['delx']).sum(dim='x')
+        (total_mb / 1e9).plot(ax=ax)
+        ax.set_ylabel('Total MB (km^3/yr)')
+    else:
+        ax.text(0.5, 0.5, 'Mass Balance (F) not in output', ha='center', va='center', transform=ax.transAxes)
+    ax.set_xlabel('Time (years)')
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.set_title('Total Mass Balance')
+
+    # Plot 3: Final ice thickness profile
+    ax = axes[2]
     final_h = ds.h.isel(time=-1)
     final_surface = ds.zb + final_h
     x_km = ds.x.values / 1e3
