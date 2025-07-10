@@ -393,7 +393,7 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
             Qp[0] = -(flux_d + flux_s)
 
             # Qm[0] = 0  # flux at minus half grid point
-            dhdt[0] = b[0] - Qp[0] / (delx / 2) - (Qp[0] + Qm[0]) / (2 * w[0]) * dwdx[0]
+            dhdt[0] = b[0] - Qp[0] / delx - (Qp[0] + Qm[0]) / (2 * w[0]) * dwdx[0]
         elif (h[j] <= min_thick) & (h[j - 1] > min_thick):  # glacier toe condition
             # Qp[j] = 0
             h_ave = (h[j] + h[j-1]) / 2

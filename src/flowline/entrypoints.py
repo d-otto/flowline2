@@ -33,7 +33,10 @@ def _create_model_from_params(run_params):
     
     config = FlowlineConfig(**config_p)
     
-    geom_func = import_from_string(geometry_p['function'])
+    geom_func_str = geometry_p.get('function')
+    if not geom_func_str:
+        raise ValueError("Missing 'geometry.function' in parameters.")
+    geom_func = import_from_string(geom_func_str)
     geom_func_params = geometry_p.get('parameters', {})
     x_gr, zb_gr, w_geom = geom_func(**geom_func_params)
     

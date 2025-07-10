@@ -88,12 +88,17 @@ def plot_run_qc(ds, output_path):
     ax.legend()
     ax.set_title(f'Final Profile at year {ds.time.values[-1]:.1f}')
 
-    run_params = json.loads(ds.attrs['run_parameters'])
     title = f"Run QC: {output_path.name.replace('.png', '')}"
-    params_to_show = run_params.get('forcing', {})
-    params_str = ', '.join([f'{k}={v}' for k, v in params_to_show.items()])
-    if params_str:
-        title += f" (params: {params_str})"
+    if 'run_parameters' in ds.attrs:
+        try:
+            run_params = json.loads(ds.attrs['run_parameters'])
+            params_to_show = run_params.get('forcing', {})
+            params_str = ', '.join([f'{k}={v}' for k, v in params_to_show.items()])
+            if params_str:
+                title += f" (params: {params_str})"
+        except (json.JSONDecodeError, TypeError):
+            # If run_parameters is not a valid JSON string, just use the default title.
+            pass
 
     fig.suptitle(title, fontsize=14)
     plt.savefig(output_path, dpi=150)

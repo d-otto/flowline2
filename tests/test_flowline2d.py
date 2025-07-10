@@ -425,7 +425,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_pos
         )
         geometry_pos = FlowlineGeometry(
-            x_gr, zb_gr, w_geom, h_init=h_init
+            x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init
         )
         model_pos = flowline2d(config=test_config, geometry=geometry_pos, forcing=forcing_pos)
         result_pos = model_pos.run()
@@ -438,7 +438,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_neg
         )
         geometry_neg = FlowlineGeometry(
-            x_gr, zb_gr, w_geom, h_init=h_init
+            x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init
         )
         model_neg = flowline2d(config=test_config, geometry=geometry_neg, forcing=forcing_neg)
         result_neg = model_neg.run()
@@ -523,7 +523,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_noise
         )
         geometry = FlowlineGeometry(
-            x_gr, zb_gr, w_geom, h_init=h_init
+            x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init
         )
         model = flowline2d(config=wn_config, geometry=geometry, forcing=forcing)
         result = model.run()
@@ -637,7 +637,7 @@ class TestMassBalanceResponses:
             b0=ss_b_profile, bp=bp_trend
         )
         geometry = FlowlineGeometry(
-            x_gr, zb_gr, w_geom, h_init=h_init
+            x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init
         )
         model = flowline2d(config=test_config, geometry=geometry, forcing=forcing)
         result = model.run()
@@ -741,7 +741,7 @@ class TestNumericalSensitivity:
         # Run models with different resolutions
         results = {}
         for name, config in [('base', config_base), ('fine', config_fine), ('coarse', config_coarse)]:
-            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h_init=h_init)
+            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
             
             # Ensure forcing uses the correct time range for this config
             run_forcing_params = forcing_params.copy()
@@ -792,7 +792,7 @@ class TestNumericalSensitivity:
             config = FlowlineConfig(delx=25, delt=delt, ts=0, tf=nyears, deltout=5)
             forcing = DirectMassBalanceForcing(b0=ss_b_profile, bp=bp_step)
             geometry = FlowlineGeometry(
-                x_gr, zb_gr, w_geom, h_init=h_init
+                x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init
             )
             model = flowline2d(config=config, geometry=geometry, forcing=forcing)
             try:
