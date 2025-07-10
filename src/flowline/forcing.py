@@ -121,9 +121,9 @@ class MassBalanceForcing(ABC):
 class TemperaturePrecipitationForcing(MassBalanceForcing):
     """Temperature-precipitation based mass balance forcing"""
     
-    def __init__(self, T0, P0, sigT=1, sigP=1, T=None, P=None, temp=None, 
+    def __init__(self, T0, P0, ts=0, tf=None, sigT=1, sigP=1, T=None, P=None, temp=None,
                  t_stab=None, mu=0.65, gamma=6.5e-3, dpdz=None, T2melt=None,
-                 pdd_Tamp=None, pdd_beta=None, ts=0, tf=2025):
+                 pdd_Tamp=None, pdd_beta=None):
         self.T0 = T0
         self.P0 = P0
         self.sigT = sigT
@@ -134,9 +134,31 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
         self.pdd_Tamp = pdd_Tamp
         self.pdd_beta = pdd_beta
         self.ts = ts
-        
-        nyrs = int(np.ceil(tf - ts))
-        
+
+        forcing_arrays = {'T': T, 'P': P, 'temp': temp}
+        provided_arrays = {k: v for k, v in forcing_arrays.items() if v is not None}
+
+        nyrs = None
+        if tf is not None:
+            nyrs = int(np.ceil(tf - ts))
+            for name, arr in provided_arrays.items():
+                if len(arr) != nyrs:
+                    raise ValueError(
+                        f"Length of forcing array '{name}' ({len(arr)}) does not match "
+                        f"simulation duration 'tf-ts' ({nyrs})."
+                    )
+        elif provided_arrays:
+            lengths = {name: len(arr) for name, arr in provided_arrays.items()}
+            first_len = next(iter(lengths.values()))
+            if not all(l == first_len for l in lengths.values()):
+                raise ValueError(f"Provided forcing arrays have inconsistent lengths: {lengths}")
+            nyrs = first_len
+        else:
+            raise ValueError(
+                "Must provide either 'tf' or at least one forcing array (T, P, temp) "
+                "to determine simulation duration."
+            )
+
         # Initialize climate arrays
         if T is None:
             T = np.zeros(nyrs)
@@ -146,12 +168,12 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
             temp = np.zeros(nyrs)
         if dpdz is None:
             dpdz = np.zeros(5000)  # Default elevation range
-            
+
         self.Tp = sigT * T  # Temperature perturbation
         self.Pp = sigP * P  # Precipitation perturbation
         self.temp = temp    # Temperature trend
         self.dpdz = dpdz    # Precipitation-elevation relationship
-        
+
         # Apply stability period
         if t_stab:
             self.Tp[:t_stab] = 0
