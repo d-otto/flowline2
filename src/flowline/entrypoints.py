@@ -106,6 +106,7 @@ def run_flowline_simulation(params_tuple):
             spinup_profile_path = spinup_dir / f"spinup_{filename}"
             print(f"[{run_idx}] Saving spin-up profile to: {spinup_profile_path}")
             spinup_ds = spinup_result.to_xarray()
+            spinup_ds.attrs['run_parameters'] = json.dumps(spinup_run_params, indent=4)
             spinup_ds.to_netcdf(spinup_profile_path)
 
             # Generate and save spin-up QC plot
