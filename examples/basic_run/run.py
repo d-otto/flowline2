@@ -16,6 +16,8 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import json
+from dataclasses import asdict
 
 # Add src directory to path to allow direct script execution
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -88,6 +90,22 @@ def main():
     # Save the full results to a NetCDF file.
     result_path = output_dir / "basic_run_result.nc"
     ds = result.to_xarray()
+
+    # Add run parameters to the dataset attributes for reproducibility
+    run_params = {
+        'config': asdict(config),
+        'geometry': {
+            'function': 'flowline.geometry.create_uniform_slope',
+            'parameters': geom_params,
+            'h_init': {'type': 'wedge', 'scale': 100, 'length': 5000}
+        },
+        'forcing': {
+            'mode': 'TP', 'T0': forcing.T0, 'P0': forcing.P0,
+            'gamma': forcing.gamma, 'mu': forcing.mu
+        }
+    }
+    ds.attrs['run_parameters'] = json.dumps(run_params)
+
     ds.to_netcdf(result_path)
     print(f"Results saved to {result_path}")
 

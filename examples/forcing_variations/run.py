@@ -79,9 +79,9 @@ def main():
             'forcing_class': TemperaturePrecipitationForcing,
             'params': {
                 'T0': 8.0, 'P0': 2.0, 'gamma': 6.5e-3, 'mu': 0.65,
-                'temp': np.linspace(0, 2.0, 100) # Warming trend for first 100 years
+                'temp': np.concatenate([np.linspace(0, 2.0, 100), np.full(nyears - 100, 2.0)])
             },
-            'forcing_ts': np.linspace(0, 2.0, 100)
+            'forcing_ts': np.concatenate([np.linspace(0, 2.0, 100), np.full(nyears - 100, 2.0)])
         },
         'Step Change (-0.5 m/yr)': {
             'forcing_class': DirectMassBalanceForcing,
