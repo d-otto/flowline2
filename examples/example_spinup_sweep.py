@@ -1,4 +1,6 @@
 """
+run.py
+
 Example of running a parameter sweep with a spin-up stage.
 
 This example demonstrates a common use case:
@@ -13,7 +15,7 @@ from pathlib import Path
 import sys
 
 # Add src directory to path to allow direct script execution
-ROOT_DIR = Path(__file__).resolve().parent.parent
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(ROOT_DIR))
 
 from src.flowline.sweep import FlowlineSweep
@@ -28,13 +30,13 @@ def main():
     parser.add_argument(
         '--config',
         type=str,
-        default=str(ROOT_DIR / 'examples' / 'configs' / 'spinup_sweep_config.yml'),
+        default=str(Path(__file__).resolve().parent / 'config.yml'),
         help="Path to the sweep configuration YAML file."
     )
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='spinup_sweep_output',
+        default=str(Path(__file__).resolve().parent / 'output'),
         help="Directory to save sweep results."
     )
     parser.add_argument(

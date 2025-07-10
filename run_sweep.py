@@ -10,10 +10,11 @@ import xarray as xr
 import sys
 import json
 
-# Add src to path to find flowline modules
-sys.path.append('src')
-from flowline.io import generate_run_params
-from flowline.entrypoints import run_flowline_simulation
+# Add src directory to path to allow direct script execution
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(ROOT_DIR))
+from src.flowline.io import generate_run_params
+from src.flowline.entrypoints import run_flowline_simulation
 
 def get_git_revision_hash():
     """Get the current git commit hash."""
@@ -33,8 +34,11 @@ def save_environment(output_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Run a flowline model parameter sweep.")
-    parser.add_argument("config_file", type=str, help="Path to the sweep YAML configuration file.")
-    parser.add_argument("-o", "--output_dir", type=str, default=f"sweep_output_{int(time.time())}",
+    parser.add_argument("--config", type=str,
+                        default=str(Path(__file__).resolve().parent / 'config.yml'),
+                        help="Path to the sweep YAML configuration file.")
+    parser.add_argument("-o", "--output_dir", type=str,
+                        default=str(Path(__file__).resolve().parent / 'output'),
                         help="Directory to save sweep results.")
     parser.add_argument("--workers", type=int, default=None, help="Number of Dask workers (cores) to use. Defaults to all available.")
     parser.add_argument("--no-combine", action="store_true", help="Do not combine individual run outputs into a single file after the sweep.")
@@ -46,7 +50,7 @@ def main():
     print(f"Sweep outputs will be saved to: {output_dir}")
 
     # Load and copy config
-    with open(args.config_file, 'r') as f:
+    with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     with open(output_dir / 'config.yml', 'w') as f:
         yaml.dump(config, f)

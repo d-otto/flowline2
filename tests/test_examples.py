@@ -2,20 +2,14 @@ import pytest
 from pathlib import Path
 import subprocess
 import sys
+import glob
 
-# Discover example scripts to be tested.
-# We only include scripts for which content was provided.
-EXAMPLE_DIR = Path(__file__).resolve().parent.parent
-example_scripts = [
-    EXAMPLE_DIR / 'examples/example_spinup_sweep.py',
-    EXAMPLE_DIR / 'examples/example_sweep.py'
-]
+# Discover all example run scripts.
+EXAMPLE_DIR = Path(__file__).resolve().parent.parent / 'examples'
+example_scripts = sorted([Path(p) for p in glob.glob(str(EXAMPLE_DIR / '*/run.py'))])
 
-# Filter out scripts that might not exist to prevent errors.
-example_scripts = [p for p in example_scripts if p.exists()]
-
-# Create readable IDs for the tests.
-ids = [p.name for p in example_scripts]
+# Create readable IDs for the tests from their parent directory names.
+ids = [p.relative_to(EXAMPLE_DIR).parent.name for p in example_scripts]
 
 @pytest.mark.parametrize("script_path", example_scripts, ids=ids)
 def test_example_script_runs_successfully(script_path, tmp_path):
@@ -23,16 +17,15 @@ def test_example_script_runs_successfully(script_path, tmp_path):
     Runs an example script as a subprocess to ensure it executes without errors.
     Outputs are redirected to a temporary directory provided by pytest.
     """
-    # Use a unique subdirectory for each parametrised test case.
-    output_dir = tmp_path / script_path.stem
-    output_dir.mkdir()
-
     command = [
         sys.executable,
         str(script_path),
         '--output-dir',
-        str(output_dir)
+        str(tmp_path)
     ]
+
+    # The example scripts now handle their own default config paths, so no
+    # special logic is needed here to provide a --config argument.
 
     # Execute the script as a subprocess.
     result = subprocess.run(
@@ -44,7 +37,8 @@ def test_example_script_runs_successfully(script_path, tmp_path):
 
     # Assert that the script ran successfully (exit code 0).
     assert result.returncode == 0, (
-        f"Script {script_path.name} failed with exit code {result.returncode}.\n"
+        f"Script '{script_path.relative_to(EXAMPLE_DIR)}' failed with exit code {result.returncode}.\n"
+        f"--- COMMAND ---\n{' '.join(command)}\n"
         f"--- STDOUT ---\n{result.stdout}\n"
         f"--- STDERR ---\n{result.stderr}"
     )

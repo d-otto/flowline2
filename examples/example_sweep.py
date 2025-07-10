@@ -1,15 +1,8 @@
 """
-example_sweep.py
+run.py
 
 Demonstrates how to programmatically set up and run a parameter sweep using
 the `FlowlineSweep` class.
-
-This script demonstrates:
-1.  Creating a sweep configuration as a Python dictionary.
-2.  Writing the configuration to a temporary YAML file.
-3.  Instantiating and running `FlowlineSweep`.
-4.  Loading the combined results from the output NetCDF file.
-5.  Creating a plot from the aggregated sweep results.
 """
 from pathlib import Path
 import yaml
@@ -19,8 +12,13 @@ import tempfile
 import os
 import numpy as np
 import argparse
+import sys
 
-from flowline.sweep import FlowlineSweep
+# Add src directory to path to allow direct script execution
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(ROOT_DIR))
+
+from src.flowline.sweep import FlowlineSweep
 
 def main():
     parser = argparse.ArgumentParser(
@@ -29,7 +27,7 @@ def main():
     parser.add_argument(
         '--output-dir',
         type=str,
-        default=str(Path(__file__).parent / "example_outputs" / "sweep_example_output"),
+        default=str(Path(__file__).resolve().parent / "output"),
         help="Directory to save sweep results."
     )
     args = parser.parse_args()
