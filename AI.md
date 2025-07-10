@@ -61,3 +61,14 @@ This is the primary advanced workflow, used for sensitivity analysis.
 -   **Legacy `__init__`**: The `flowline2d` constructor has a legacy path (`_init_legacy`). It is designed for backward compatibility with an older, monolithic-style constructor. All new code and sweep runs use the modern constructor that accepts separate `config`, `geometry`, and `forcing` objects.
 -   **Obsolete `run_sweep.py`**: The file `run_sweep.py` at the project root is obsolete and non-functional. The modern way to run sweeps is via the `flowline-sweep` command, which uses `src/cli/run_sweep.py` and `src/flowline/sweep.py`. Do not use or modify the root-level script.
 -   **Dynamic Geometry Functions**: In sweeps, the geometry-creation function (e.g., `flowline.geometry.create_uniform_slope`) is specified as a string in the YAML config. The `run_flowline_simulation` entrypoint uses `import_from_string` (from `src/flowline/io.py`) to dynamically import and call this function.
+
+## 6. Conventions
+
+-   **Indexing**: Do not use `np.clip` to prevent out-of-bounds indexing. This practice can hide underlying bugs related to incorrect array sizes or logic errors. Array sizes and indices should be handled correctly so that clipping is not necessary.
+
+## 7. Architectural Log
+
+This section tracks significant architectural decisions and changes over time.
+
+*   **2025-07-09: Serialization changed from Pickle to xarray/NetCDF.**
+    The primary method for saving model results for analysis and subsequent runs is `to_xarray()`, which creates an `xarray.Dataset` that is typically saved to a NetCDF file. The `to_pickle` method on the `flowline2d` class has been removed. The standard for data interchange is now NetCDF via `xarray`.
