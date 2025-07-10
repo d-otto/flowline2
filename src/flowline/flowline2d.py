@@ -85,8 +85,9 @@ class flowline2d:
                         class Geometry:
                             pass
                         self.geometry = Geometry()
-                        self.geometry.x_gr = ds_.attrs['x_gr']
-                        # Since the grid is checked to be the same, we can use the resampled vars.
+                        # The "raw" geometry for this run is the resampled geometry from the spin-up.
+                        # We use the spin-up's model grid ('x') as the new 'x_gr' to maintain consistency.
+                        self.geometry.x_gr = ds_['x'].values
                         self.geometry.zb_gr = ds_['zb_gr_resampled'].values
                         self.geometry.w_geom = ds_['w_geom_resampled'].values
 
