@@ -1,0 +1,56 @@
+# This configuration demonstrates a parameter sweep with a spin-up stage.
+# The scenario is as follows:
+# 1. For each lapse rate (`gamma`) in the sweep, a glacier is run to steady
+#    state (500 years) under a stable climate (T0 = 8.0 C).
+# 2. The resulting steady-state profile is then used as the initial condition
+#    for a 500-year transient run where the climate is 0.2 C warmer (T0 = 8.2 C).
+# This allows studying how glaciers with different sensitivities (`gamma`) respond
+# to the same climate forcing.
+
+# --- Spinup Configuration ---
+# Parameters here override `base_parameters` for the spin-up stage only.
+spinup:
+  enabled: true
+  config:
+    # Run for 500 years to reach steady state
+    tf: 500
+  forcing:
+    # Use a stable climate for the spin-up.
+    T0: 8.0
+    P0: 2.0
+
+# --- Base Parameters for the Main "Experiment" Run ---
+base_parameters:
+  config:
+    ts: 0
+    tf: 500 # Main run is a 500-year experiment
+    delx: 25
+    delt: 0.00078125  # 0.0125 / 8
+    deltout: 1.0
+    min_thick: 1.0
+  
+  geometry:
+    function: 'flowline.geometry.create_uniform_slope'
+    parameters:
+      bed_characteristic_length: 10000
+      domain_extent: 12000
+      x_gr_points: 61
+      width: 1000
+      elevation_drop: 1000
+
+    # NOTE: The 'profile' key is ignored if spinup is enabled because
+    # the spinup generates the initial profile for each run.
+
+  forcing:
+    mode: 'TP'
+    P0: 2.0
+    # The main run uses a warmer climate.
+    T0: 8.2
+    # Set a default melt factor `mu` since it's not being swept.
+    mu: 0.65
+
+# --- Sweep Parameters ---
+# These parameters are applied to BOTH the spin-up and main runs.
+# Here, we sweep over the lapse rate `gamma`.
+sweep_parameters:
+  forcing.gamma: [0.004, 0.0045, 0.005, 0.0055, 0.006, 0.0065, 0.007, 0.0075, 0.008]
