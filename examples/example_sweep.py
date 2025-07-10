@@ -115,7 +115,7 @@ def main():
         x='time', col='forcing_gamma', hue='forcing_mu', col_wrap=3
     )
     g_len.fig.suptitle('Glacier Length Trajectories', y=1.03, fontsize=16)
-    g_len.set_titles("γ = {value:.4f}")
+    g_len.set_titles("γ = {value}")
     g_len.set_xlabels('Time (years)')
     g_len.set_ylabels('Length (km)')
     plt.tight_layout()
@@ -129,7 +129,7 @@ def main():
         x='time', col='forcing_gamma', hue='forcing_mu', col_wrap=3
     )
     g_vol.fig.suptitle('Glacier Volume Trajectories', y=1.03, fontsize=16)
-    g_vol.set_titles("γ = {value:.4f}")
+    g_vol.set_titles("γ = {value}")
     g_vol.set_xlabels('Time (years)')
     g_vol.set_ylabels('Volume (km³)')
     plt.tight_layout()
