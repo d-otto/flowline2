@@ -105,7 +105,13 @@ def run_flowline_simulation(params_tuple):
             spinup_dir.mkdir(parents=True, exist_ok=True)
             spinup_profile_path = spinup_dir / f"spinup_{filename}"
             print(f"[{run_idx}] Saving spin-up profile to: {spinup_profile_path}")
-            spinup_result.to_xarray().to_netcdf(spinup_profile_path)
+            spinup_ds = spinup_result.to_xarray()
+            spinup_ds.to_netcdf(spinup_profile_path)
+
+            # Generate and save spin-up QC plot
+            spinup_plot_output_path = spinup_profile_path.with_suffix('.png')
+            print(f"[{run_idx}] Generating spin-up QC plot: {spinup_plot_output_path}")
+            plot_run_qc(spinup_ds, spinup_plot_output_path)
             
             # The main run will now use this profile as its initial state
             if 'geometry' not in run_params:
