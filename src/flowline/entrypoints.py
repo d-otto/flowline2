@@ -100,19 +100,22 @@ def run_flowline_simulation(params_tuple):
             spinup_result = spinup_model.run()
             print(f"[{run_idx}] Spin-up run completed.")
 
-            # Save spin-up profile to be used by the main run
+            # Process and save spin-up results
+            spinup_ds = spinup_result.to_xarray()
+            spinup_ds.attrs['run_parameters'] = json.dumps(spinup_run_params, indent=4)
+
             spinup_dir = Path(output_dir) / 'spinup_profiles'
             spinup_dir.mkdir(parents=True, exist_ok=True)
             spinup_profile_path = spinup_dir / f"spinup_{filename}"
-            print(f"[{run_idx}] Saving spin-up profile to: {spinup_profile_path}")
-            spinup_ds = spinup_result.to_xarray().load()
-            spinup_ds.attrs['run_parameters'] = json.dumps(spinup_run_params, indent=4)
-            spinup_ds.to_netcdf(spinup_profile_path)
 
-            # Generate and save spin-up QC plot
+            # Generate and save spin-up QC plot before saving the dataset
             spinup_plot_output_path = spinup_profile_path.with_suffix('.png')
             print(f"[{run_idx}] Generating spin-up QC plot: {spinup_plot_output_path}")
             plot_run_qc(spinup_ds, spinup_plot_output_path)
+            
+            # Save spin-up profile to be used by the main run
+            print(f"[{run_idx}] Saving spin-up profile to: {spinup_profile_path}")
+            spinup_ds.to_netcdf(spinup_profile_path)
             
             # The main run will now use this profile as its initial state
             if 'geometry' not in run_params:
@@ -129,18 +132,18 @@ def run_flowline_simulation(params_tuple):
         result = model.run()
         print(f"[{run_idx}] Main run completed.")
 
-        # Save result to xarray with comprehensive metadata
-        ds = result.to_xarray().load()
-        
+        # Process and save main run results
+        ds = result.to_xarray()
         ds.attrs['run_parameters'] = json.dumps(run_params, indent=4)
-        
-        print(f"[{run_idx}] Saving final result to: {output_path}")
-        ds.to_netcdf(output_path)
 
-        # Generate and save QC plot
+        # Generate and save QC plot before saving the dataset
         plot_output_path = output_path.with_suffix('.png')
         print(f"[{run_idx}] Generating QC plot: {plot_output_path}")
         plot_run_qc(ds, plot_output_path)
+        
+        # Save final result to NetCDF
+        print(f"[{run_idx}] Saving final result to: {output_path}")
+        ds.to_netcdf(output_path)
         
         print(f"[{run_idx}] Run successful.")
         return str(output_path)
