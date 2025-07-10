@@ -1,5 +1,5 @@
 """
-example_bed_geometry_variations.py
+run.py
 
 Demonstrates how to use different bedrock geometry functions (e.g., uniform slope,
 concave profile, variable width) and compares their effects on glacier evolution.
@@ -12,6 +12,11 @@ This script demonstrates:
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+
+# Add src directory to path to allow direct script execution
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(ROOT_DIR))
 
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing, flowline2d)
 from flowline.geometry import (FlowlineGeometry, create_uniform_slope,
@@ -19,7 +24,7 @@ from flowline.geometry import (FlowlineGeometry, create_uniform_slope,
 
 def main():
     # --- 1. Define Output Directory ---
-    output_dir = Path(__file__).parent / "example_outputs"
+    output_dir = Path(__file__).resolve().parent / "output"
     output_dir.mkdir(exist_ok=True)
     print(f"Example outputs will be saved to: {output_dir}")
 

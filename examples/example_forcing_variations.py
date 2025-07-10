@@ -1,5 +1,5 @@
 """
-example_forcing_variations.py
+run.py
 
 Demonstrates how to configure and use different mass balance forcing scenarios.
 
@@ -12,6 +12,11 @@ This script demonstrates:
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+
+# Add src directory to path to allow direct script execution
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(ROOT_DIR))
 
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing,
                                DirectMassBalanceForcing, flowline2d)
@@ -28,7 +33,7 @@ def run_spinup(config, geometry, forcing):
 
 def main():
     # --- 1. Define Output Directory ---
-    output_dir = Path(__file__).parent / "example_outputs"
+    output_dir = Path(__file__).resolve().parent / "output"
     output_dir.mkdir(exist_ok=True)
     print(f"Example outputs will be saved to: {output_dir}")
 

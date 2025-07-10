@@ -1,5 +1,5 @@
 """
-example_basic_run.py
+run.py
 
 A simple, end-to-end example of setting up and running a single flowline
 simulation.
@@ -15,6 +15,11 @@ This script demonstrates:
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+
+# Add src directory to path to allow direct script execution
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(ROOT_DIR))
 
 # --- Import Flowline Components ---
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing, flowline2d)
@@ -24,7 +29,7 @@ from flowline.visualization import plot_run_qc
 
 def main():
     # --- 1. Define Output Directory ---
-    output_dir = Path(__file__).parent / "example_outputs"
+    output_dir = Path(__file__).resolve().parent / "output"
     output_dir.mkdir(exist_ok=True)
     print(f"Example outputs will be saved to: {output_dir}")
 
