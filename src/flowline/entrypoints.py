@@ -105,7 +105,7 @@ def run_flowline_simulation(params_tuple):
             spinup_dir.mkdir(parents=True, exist_ok=True)
             spinup_profile_path = spinup_dir / f"spinup_{filename}"
             print(f"[{run_idx}] Saving spin-up profile to: {spinup_profile_path}")
-            spinup_ds = spinup_result.to_xarray()
+            spinup_ds = spinup_result.to_xarray().load()
             spinup_ds.attrs['run_parameters'] = json.dumps(spinup_run_params, indent=4)
             spinup_ds.to_netcdf(spinup_profile_path)
 
@@ -130,7 +130,7 @@ def run_flowline_simulation(params_tuple):
         print(f"[{run_idx}] Main run completed.")
 
         # Save result to xarray with comprehensive metadata
-        ds = result.to_xarray()
+        ds = result.to_xarray().load()
         
         ds.attrs['run_parameters'] = json.dumps(run_params, indent=4)
         
