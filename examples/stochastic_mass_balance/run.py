@@ -298,10 +298,10 @@ def main():
         # 5. Histogram of length timeseries
         all_lengths_km = ds['edge'] / 1000  # All timesteps, convert to km
         
-        # Calculate common bins for length histograms based on requested spacing
+        # Calculate common bins for length histograms with a fixed width of 100m
         min_len = all_lengths_km.min().item()
         max_len = all_lengths_km.max().item()
-        bin_width_len_km = (4 * base_config.delx) / 1000  # convert to km
+        bin_width_len_km = 100 / 1000  # 100m in km
         bins_len = np.arange(min_len, max_len + bin_width_len_km, bin_width_len_km)
         
         if sweep_dim and len(ds[sweep_dim]) > 1:
@@ -325,11 +325,11 @@ def main():
         # 6. Histogram of volume timeseries
         all_volumes_km3 = ice_volume_km3  # All timesteps
         
-        # Calculate common bins for volume histograms
+        # Calculate common bins for volume histograms with a fixed width
         min_vol = all_volumes_km3.min().item()
         max_vol = all_volumes_km3.max().item()
-        # Use a fixed number of bins to ensure consistent width across plots
-        bins_vol = np.linspace(min_vol, max_vol, num=31)  # Creates 30 bins
+        bin_width_vol_km3 = 0.05  # km^3
+        bins_vol = np.arange(min_vol, max_vol + bin_width_vol_km3, bin_width_vol_km3)
         
         if sweep_dim and len(ds[sweep_dim]) > 1:
             # Create overlapping histograms for each noise level
