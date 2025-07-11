@@ -298,17 +298,23 @@ def main():
         # 5. Histogram of length timeseries
         all_lengths_km = ds['edge'] / 1000  # All timesteps, convert to km
         
+        # Calculate common bins for length histograms based on requested spacing
+        min_len = all_lengths_km.min().item()
+        max_len = all_lengths_km.max().item()
+        bin_width_len_km = (4 * base_config.delx) / 1000  # convert to km
+        bins_len = np.arange(min_len, max_len + bin_width_len_km, bin_width_len_km)
+        
         if sweep_dim and len(ds[sweep_dim]) > 1:
             # Create overlapping histograms for each noise level
             for i, std_dev in enumerate(temp_noise_std_devs[:len(ds[sweep_dim])]):
                 length_timeseries = all_lengths_km.isel({sweep_dim: i})
-                axes[2, 0].hist(length_timeseries.values, bins=20, alpha=0.4, 
+                axes[2, 0].hist(length_timeseries.values, bins=bins_len, alpha=0.4, 
                                label=f'σ_T = {std_dev:.2f}°C', color=colors[i % len(colors)],
                                edgecolor=colors[i % len(colors)], linewidth=1.5)
             axes[2, 0].legend()
         else:
             # Single histogram of all length values across time
-            axes[2, 0].hist(all_lengths_km.values.flatten(), bins=30, 
+            axes[2, 0].hist(all_lengths_km.values.flatten(), bins=bins_len, 
                            alpha=0.7, edgecolor='black', color='skyblue')
         
         axes[2, 0].set_xlabel('Glacier Length (km)')
@@ -319,17 +325,23 @@ def main():
         # 6. Histogram of volume timeseries
         all_volumes_km3 = ice_volume_km3  # All timesteps
         
+        # Calculate common bins for volume histograms
+        min_vol = all_volumes_km3.min().item()
+        max_vol = all_volumes_km3.max().item()
+        # Use a fixed number of bins to ensure consistent width across plots
+        bins_vol = np.linspace(min_vol, max_vol, num=31)  # Creates 30 bins
+        
         if sweep_dim and len(ds[sweep_dim]) > 1:
             # Create overlapping histograms for each noise level
             for i, std_dev in enumerate(temp_noise_std_devs[:len(ds[sweep_dim])]):
                 volume_timeseries = all_volumes_km3.isel({sweep_dim: i})
-                axes[2, 1].hist(volume_timeseries.values, bins=20, alpha=0.4, 
+                axes[2, 1].hist(volume_timeseries.values, bins=bins_vol, alpha=0.4, 
                                label=f'σ_T = {std_dev:.2f}°C', color=colors[i % len(colors)],
                                edgecolor=colors[i % len(colors)], linewidth=1.5)
             axes[2, 1].legend()
         else:
             # Single histogram of all volume values across time
-            axes[2, 1].hist(all_volumes_km3.values.flatten(), bins=30, 
+            axes[2, 1].hist(all_volumes_km3.values.flatten(), bins=bins_vol, 
                            alpha=0.7, edgecolor='black', color='lightcoral')
         
         axes[2, 1].set_xlabel('Glacier Volume (km³)')
