@@ -336,12 +336,20 @@ class flowline2d:
         config_dict = asdict(self.config)
         # Filter out None values, as they are not supported by netCDF attributes
         attrs = {k: v for k, v in config_dict.items() if v is not None}
-        # Add forcing parameters to attributes for reproducibility and testing
-        if isinstance(self.forcing, TemperaturePrecipitationForcing):
-            attrs['T0'] = self.forcing.T0
-            attrs['P0'] = self.forcing.P0
-            attrs['gamma'] = self.forcing.gamma
-            attrs['mu'] = self.forcing.mu
+        # Add forcing parameters to attributes for reproducibility and testing.
+        # This is done generically to capture all forcing parameters.
+        if hasattr(self.forcing, '__dict__'):
+            for key, value in vars(self.forcing).items():
+                if key.startswith('_'):
+                    continue
+
+                attr_key = f'forcing_{key}'
+                if isinstance(value, (list, np.ndarray, tuple)):
+                    # For array-like parameters, store a representation of their shape
+                    # to prevent excessively long labels in sweep plots.
+                    attrs[attr_key] = f"<array shape={str(np.array(value).shape)}>"
+                elif value is not None:
+                    attrs[attr_key] = value
         # Store the original geometry grid as numpy array attributes
         attrs['x_gr'] = self.x_gr
         attrs['zb_gr'] = self.zb_gr

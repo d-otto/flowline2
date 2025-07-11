@@ -106,7 +106,14 @@ def plot_run_qc(ds, output_path):
         try:
             run_params = json.loads(ds.attrs['run_parameters'])
             params_to_show = run_params.get('forcing', {})
-            params_str = ', '.join([f'{k}={v}' for k, v in params_to_show.items()])
+            param_items = []
+            for k, v in params_to_show.items():
+                if isinstance(v, list):
+                    # For array-like parameters, show shape instead of full value.
+                    param_items.append(f"{k}=<array shape={str(np.array(v).shape)}>")
+                else:
+                    param_items.append(f"{k}={v}")
+            params_str = ', '.join(param_items)
             if params_str:
                 title += f" (params: {params_str})"
         except (json.JSONDecodeError, TypeError):
