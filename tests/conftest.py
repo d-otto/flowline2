@@ -4,19 +4,17 @@ from pathlib import Path
 
 
 @pytest.fixture(autouse=True)
-def clear_example_output_folders():
+def clear_example_output_folders(request):
     """
-    Automatically clear output folders in example directories before each test.
-    This fixture runs before every test to ensure clean state.
+    Automatically clear the output folder for a specific example script test.
+    This fixture identifies tests parameterized with `script_path` (like those
+    in test_examples.py) and clears the 'output' directory in that script's
+    parent folder before the test runs.
     """
-    # Find all example directories
-    example_dir = Path(__file__).resolve().parent.parent / 'examples'
-    
-    if example_dir.exists():
-        # Clear output folders in all example directories
-        for example_subdir in example_dir.iterdir():
-            if example_subdir.is_dir() and example_subdir.name != '__pycache__':
-                output_dir = example_subdir / 'output'
-                if output_dir.exists():
-                    shutil.rmtree(output_dir)
-                    output_dir.mkdir(exist_ok=True)
+    if hasattr(request.node, "callspec"):
+        if 'script_path' in request.node.callspec.params:
+            script_path = request.node.callspec.params['script_path']
+            output_dir = script_path.parent / 'output'
+            if output_dir.exists():
+                shutil.rmtree(output_dir)
+            output_dir.mkdir(exist_ok=True)
