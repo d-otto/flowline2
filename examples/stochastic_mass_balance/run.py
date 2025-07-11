@@ -263,8 +263,7 @@ def main():
             for i, (std_dev, color) in enumerate(zip(temp_noise_std_devs, colors)):
                 mb_series = ds['total_mass_balance'].isel({sweep_dim: i})
                 label = f'σ_T = {std_dev:.2f} °C'
-                # Only plot first few years to avoid overcrowding
-                plot_years = min(100, len(mb_series))
+                plot_years = len(mb_series)
                 axes[1, 0].plot(ds['time'][:plot_years], mb_series[:plot_years], alpha=0.7, linewidth=1, 
                                color=color, label=label)
         
@@ -283,8 +282,7 @@ def main():
                 base_config.ts, base_config.tf, std_dev, local_rng
             )
             label = f'σ_T = {std_dev:.2f} °C'
-            # Only plot first few years to avoid overcrowding
-            plot_years = min(100, len(temp_noise))
+            plot_years = len(temp_noise)
             axes[1, 1].plot(time_points[:plot_years], temp_noise[:plot_years], alpha=0.8, linewidth=1, 
                            color=color, label=label)
         
