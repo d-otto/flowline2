@@ -15,7 +15,7 @@ from pathlib import Path
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import stats
+from scipy import stats, signal
 
 # Add src directory to path to allow direct script execution
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -258,18 +258,24 @@ def main():
         axes[0, 1].legend()
         
         # 3. Total mass balance time series 
+        # Create a low-pass filter with a 60-year cutoff period, which gives an
+        # effective 30-year filter with sosfiltfilt as requested.
+        # Wn = (1/60) / (fs/2) = (1/60) / 0.5 = 1/30
+        sos = signal.butter(4, 1/30, 'low', output='sos')
+
         time_points = np.arange(base_config.ts, base_config.tf)  # One point per year
         if 'total_mass_balance' in ds.variables and sweep_dim and len(ds[sweep_dim]) >= len(temp_noise_std_devs):
             for i, (std_dev, color) in enumerate(zip(temp_noise_std_devs, colors)):
                 mb_series = ds['total_mass_balance'].isel({sweep_dim: i})
+                mb_series_filtered = signal.sosfiltfilt(sos, mb_series)
                 label = f'σ_T = {std_dev:.2f} °C'
-                plot_years = len(mb_series)
-                axes[1, 0].plot(ds['time'][:plot_years], mb_series[:plot_years], alpha=0.7, linewidth=1, 
+                plot_years = len(mb_series_filtered)
+                axes[1, 0].plot(ds['time'][:plot_years], mb_series_filtered[:plot_years], alpha=0.7, linewidth=1, 
                                color=color, label=label)
         
         axes[1, 0].set_xlabel('Time (years)')
         axes[1, 0].set_ylabel('Total Mass Balance (m/yr)')
-        axes[1, 0].set_title('Total Mass Balance Evolution')
+        axes[1, 0].set_title('Total Mass Balance Evolution (30-yr filtered)')
         axes[1, 0].grid(True, alpha=0.3)
         axes[1, 0].legend()
         
@@ -281,15 +287,16 @@ def main():
             temp_noise = generate_temperature_noise(
                 base_config.ts, base_config.tf, std_dev, local_rng
             )
+            temp_noise_filtered = signal.sosfiltfilt(sos, temp_noise)
             label = f'σ_T = {std_dev:.2f} °C'
-            plot_years = len(temp_noise)
-            axes[1, 1].plot(time_points[:plot_years], temp_noise[:plot_years], alpha=0.8, linewidth=1, 
+            plot_years = len(temp_noise_filtered)
+            axes[1, 1].plot(time_points[:plot_years], temp_noise_filtered[:plot_years], alpha=0.8, linewidth=1, 
                            color=color, label=label)
         
         axes[1, 1].axhline(0, color='black', linestyle='--', alpha=0.8, label='Mean: 0 °C')
         axes[1, 1].set_xlabel('Time (years)')
         axes[1, 1].set_ylabel('Temperature Anomaly (°C)')
-        axes[1, 1].set_title('Temperature Anomaly (Tp) Evolution')
+        axes[1, 1].set_title('Temperature Anomaly (Tp) Evolution (30-yr filtered)')
         axes[1, 1].grid(True, alpha=0.3)
         axes[1, 1].legend()
         
