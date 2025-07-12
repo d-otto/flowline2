@@ -2,7 +2,7 @@
 """
 Spinup sweep example using the new unified config+run approach.
 
-This demonstrates a parameter sweep with a spin-up stage, where each melt factor
+This demonstrates a parameter sweep with a spin-up stage, where each lapse rate
 gets spun up to steady state before the main experimental run.
 """
 
@@ -22,7 +22,7 @@ import src.flowline.geometry as geometry_module
 
 def main():
     # Parse command line arguments
-    args = parse_sweep_cli_args("Run a spinup sweep example with melt factor sweep.")
+    args = parse_sweep_cli_args("Run a spinup sweep example with lapse rate sweep.")
     
     # Default output directory if not specified
     if args.output_dir is None:
@@ -63,13 +63,14 @@ def main():
         tf=base_config.tf,
         P0=2.0,
         T0=8.2,  # The main run uses a warmer climate
-        mu=0.6   # This will be overridden by sweep parameters
+        mu=0.65,  # Set a default melt factor since it's not being swept
+        gamma=0.0065  # This will be overridden by sweep parameters
     )
     
     # --- Sweep Parameters ---
-    # Here, we sweep over the melt sensitivity factor `mu`
+    # Here, we sweep over the lapse rate `gamma`
     sweep_parameters = {
-        'forcing.mu': [0.5, 0.525, 0.55, 0.575, 0.6, 0.625, 0.65, 0.675, 0.7]
+        'forcing.gamma': [0.004, 0.0045, 0.005, 0.0055, 0.006, 0.0065, 0.007, 0.0075, 0.008]
     }
     
     # --- Spinup Configuration ---
@@ -86,10 +87,10 @@ def main():
     }
     
     print(f"Spinup sweep setup:")
-    print(f"  Melt factor values: {sweep_parameters['forcing.mu']}")
+    print(f"  Lapse rate values: {sweep_parameters['forcing.gamma']}")
     print(f"  Spinup climate: T0={spinup_config['forcing']['T0']}°C, P0={spinup_config['forcing']['P0']}m/yr")
     print(f"  Main run climate: T0={base_forcing.T0}°C, P0={base_forcing.P0}m/yr")
-    print(f"  Total runs: {len(sweep_parameters['forcing.mu'])}")
+    print(f"  Total runs: {len(sweep_parameters['forcing.gamma'])}")
     
     # --- Run the Sweep ---
     sweep = FlowlineSweep(
@@ -117,12 +118,12 @@ def main():
         print("Creating custom analysis...")
         ds = xr.open_dataset(combined_results_path)
         
-        # Plot glacier response to different melt sensitivities
+        # Plot glacier response to different lapse rates
         fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-        fig.suptitle('Glacier Response to Melt Factor Sensitivity', fontsize=16)
+        fig.suptitle('Glacier Response to Temperature Lapse Rate', fontsize=16)
         
         # Length trajectories
-        (ds['edge'] / 1000).plot.line(x='time', hue='forcing_mu', ax=axes[0, 0])
+        (ds['edge'] / 1000).plot.line(x='time', hue='forcing_gamma', ax=axes[0, 0])
         axes[0, 0].set_title('Length Evolution')
         axes[0, 0].set_xlabel('Time (years)')
         axes[0, 0].set_ylabel('Length (km)')
@@ -130,30 +131,30 @@ def main():
         
         # Volume trajectories
         ice_volume_km3 = (ds['h'] * ds['w'] * ds.attrs['delx']).sum(dim='x') / 1e9
-        ice_volume_km3.plot.line(x='time', hue='forcing_mu', ax=axes[0, 1])
+        ice_volume_km3.plot.line(x='time', hue='forcing_gamma', ax=axes[0, 1])
         axes[0, 1].set_title('Volume Evolution')
         axes[0, 1].set_xlabel('Time (years)')
         axes[0, 1].set_ylabel('Volume (km³)')
         axes[0, 1].grid(True, alpha=0.3)
         
-        # Final state vs melt factor
+        # Final state vs lapse rate
         final_length_km = ds['edge'].isel(time=-1) / 1000
         final_volume_km3 = ice_volume_km3.isel(time=-1)
         
-        axes[1, 0].plot(ds['forcing_mu'], final_length_km, 'o-')
-        axes[1, 0].set_title('Final Length vs Melt Factor')
-        axes[1, 0].set_xlabel('Melt Factor (μ)')
+        axes[1, 0].plot(ds['forcing_gamma'] * 1000, final_length_km, 'o-')
+        axes[1, 0].set_title('Final Length vs Lapse Rate')
+        axes[1, 0].set_xlabel('Lapse Rate (°C/km)')
         axes[1, 0].set_ylabel('Final Length (km)')
         axes[1, 0].grid(True, alpha=0.3)
         
-        axes[1, 1].plot(ds['forcing_mu'], final_volume_km3, 'o-', color='orange')
-        axes[1, 1].set_title('Final Volume vs Melt Factor')
-        axes[1, 1].set_xlabel('Melt Factor (μ)')
+        axes[1, 1].plot(ds['forcing_gamma'] * 1000, final_volume_km3, 'o-', color='orange')
+        axes[1, 1].set_title('Final Volume vs Lapse Rate')
+        axes[1, 1].set_xlabel('Lapse Rate (°C/km)')
         axes[1, 1].set_ylabel('Final Volume (km³)')
         axes[1, 1].grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plot_path = output_dir / "spinup_sweep_analysis.png"
+        plot_path = output_dir / "spinup_sweep_gamma_analysis.png"
         plt.savefig(plot_path, dpi=150, bbox_inches='tight')
         plt.close()
         
@@ -161,13 +162,13 @@ def main():
         
         # Print summary statistics
         print(f"\\nSummary:")
-        print(f"  Melt factor range: {ds['forcing_mu'].min().values:.3f} - {ds['forcing_mu'].max().values:.3f}")
+        print(f"  Lapse rate range: {ds['forcing_gamma'].min().values*1000:.1f} - {ds['forcing_gamma'].max().values*1000:.1f} °C/km")
         print(f"  Final length range: {final_length_km.min().values:.1f} - {final_length_km.max().values:.1f} km")
         print(f"  Final volume range: {final_volume_km3.min().values:.1f} - {final_volume_km3.max().values:.1f} km³")
     
     print("\\nThis example demonstrates:")
     print("- Spinup configuration with different climate")
-    print("- Melt factor sensitivity analysis")
+    print("- Temperature lapse rate sensitivity analysis")
     print("- Custom post-processing with sensitivity plots")
     print("- Check the spinup_profiles/ directory for individual spinup results")
 

@@ -20,6 +20,53 @@ def init_plot():
 
 import json
 
+def _format_value_for_display(value):
+    """
+    Format a value for display in titles and legends.
+    
+    Arrays and sequences are replaced with their shape information.
+    Scalars are returned as-is.
+    
+    Parameters
+    ----------
+    value : any
+        The value to format
+        
+    Returns
+    -------
+    str
+        Formatted string representation
+    """
+    if isinstance(value, (list, tuple)):
+        arr = np.array(value)
+        return f"<array shape={arr.shape}>"
+    elif isinstance(value, np.ndarray):
+        return f"<array shape={value.shape}>"
+    else:
+        return str(value)
+
+def _format_dataframe_for_plotting(df, sweep_dims):
+    """
+    Format dataframe coordinates for plotting by replacing arrays with shape info.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input dataframe
+    sweep_dims : list
+        List of sweep dimension names
+        
+    Returns
+    -------
+    pd.DataFrame
+        Formatted dataframe with readable coordinate values
+    """
+    df_formatted = df.copy()
+    for dim in sweep_dims:
+        if dim in df_formatted.columns:
+            df_formatted[dim] = df_formatted[dim].apply(_format_value_for_display)
+    return df_formatted
+
 def rt_plot(model, t, i):
     """Update real-time plot"""
     # This would contain the real-time plotting logic
@@ -38,25 +85,13 @@ def plot_run_qc(ds, output_path):
     output_path : str or Path
         Path to save the plot figure.
     """
-    fig, axes = plt.subplots(3, 1, figsize=(10, 12), constrained_layout=True)
-
-    # Check if the run resulted in NaNs and create an error plot if so
-    if ds.h.isel(time=-1).isnull().all():
-        title = f"Run QC: {output_path.name.replace('.png', '')}"
-        fig.suptitle(title, fontsize=14)
-        axes[0].text(0.5, 0.5, 'Simulation Failed: Produced NaN values', 
-                     ha='center', va='center', color='red', fontsize=12, transform=axes[0].transAxes)
-        axes[0].axis('off')
-        axes[1].axis('off')
-        axes[2].axis('off')
-        plt.savefig(output_path, dpi=150)
-        plt.close(fig)
-        return
+    fig, axes = plt.subplots(3, 1, figsize=(10, 12))
 
     # Plot 1: Glacier length and volume over time
     ax = axes[0]
     # Length
-    (ds.edge / 1e3).plot(ax=ax, label='Length')
+    edge_km = ds.edge / 1e3
+    edge_km.plot(ax=ax, label='Length')
     ax.set_ylabel('Length (km)')
     ax.set_xlabel('Time (years)')
     ax.grid(True, linestyle='--', alpha=0.6)
@@ -75,12 +110,11 @@ def plot_run_qc(ds, output_path):
 
     # Plot 2: Total mass balance over time
     ax = axes[1]
-    if 'F' in ds:
-        total_mb = (ds.F * ds.w * ds.attrs['delx']).sum(dim='x')
-        (total_mb / 1e9).plot(ax=ax)
-        ax.set_ylabel('Total MB (km^3/yr)')
-    else:
-        ax.text(0.5, 0.5, 'Mass Balance (F) not in output', ha='center', va='center', transform=ax.transAxes)
+
+    total_mb = (ds.F * ds.w * ds.attrs['delx']).sum(dim='x')
+    (total_mb / 1e9).plot(ax=ax)
+    ax.set_ylabel('Flux (km^3/yr)')
+
     ax.set_xlabel('Time (years)')
     ax.grid(True, linestyle='--', alpha=0.6)
     ax.set_title('Total Mass Balance')
@@ -105,14 +139,17 @@ def plot_run_qc(ds, output_path):
     if 'run_parameters' in ds.attrs:
         try:
             run_params = json.loads(ds.attrs['run_parameters'])
-            params_to_show = run_params.get('forcing', {})
             param_items = []
-            for k, v in params_to_show.items():
-                if isinstance(v, list):
-                    # For array-like parameters, show shape instead of full value.
-                    param_items.append(f"{k}=<array shape={str(np.array(v).shape)}>")
+            # Format all parameters, not just forcing parameters
+            for section_name, section_params in run_params.items():
+                if isinstance(section_params, dict):
+                    for k, v in section_params.items():
+                        formatted_value = _format_value_for_display(v)
+                        param_items.append(f"{section_name}.{k}={formatted_value}")
                 else:
-                    param_items.append(f"{k}={v}")
+                    # Handle top-level parameters
+                    formatted_value = _format_value_for_display(section_params)
+                    param_items.append(f"{section_name}={formatted_value}")
             params_str = ', '.join(param_items)
             if params_str:
                 title += f" (params: {params_str})"
@@ -121,6 +158,7 @@ def plot_run_qc(ds, output_path):
             pass
 
     fig.suptitle(title, fontsize=14)
+    plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     plt.close(fig)
 
@@ -150,6 +188,7 @@ def plot_sweep_qc(ds, output_dir):
 
     if sweep_dims:
         df_edge = edge_plot.to_dataframe(name='length_km').reset_index()
+        df_edge = _format_dataframe_for_plotting(df_edge, sweep_dims)
         hue_dim = sweep_dims[0]
         style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
 
@@ -190,6 +229,7 @@ def plot_sweep_qc(ds, output_dir):
 
     if sweep_dims:
         df_vol = volume_plot.to_dataframe(name='volume_km3').reset_index()
+        df_vol = _format_dataframe_for_plotting(df_vol, sweep_dims)
         hue_dim = sweep_dims[0]
         style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
 
@@ -221,6 +261,7 @@ def plot_sweep_qc(ds, output_dir):
 
     if sweep_dims:
         df_edge_change = frac_edge_change.to_dataframe(name='frac_length_change').reset_index()
+        df_edge_change = _format_dataframe_for_plotting(df_edge_change, sweep_dims)
         hue_dim = sweep_dims[0]
         style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
 
@@ -253,6 +294,7 @@ def plot_sweep_qc(ds, output_dir):
 
     if sweep_dims:
         df_vol_change = frac_volume_change.to_dataframe(name='frac_volume_change').reset_index()
+        df_vol_change = _format_dataframe_for_plotting(df_vol_change, sweep_dims)
         hue_dim = sweep_dims[0]
         style_dim = sweep_dims[1] if len(sweep_dims) > 1 else None
 

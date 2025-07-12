@@ -93,7 +93,7 @@ class FlowlineGeometry:
             h0_interp = interp1d(x0, h0, "linear", bounds_error=False, fill_value="extrapolate")
             self.h0 = h0_interp(self.x)
         except ValueError as e:
-            raise GeometryError(f"Error during initial profile interpolation: {e}")
+            raise GeometryError(f"Error during initial profile interpolation: {e}. x0 shape: {x0.shape}, h0 shape: {h0.shape}")
 
         return profile_source
 

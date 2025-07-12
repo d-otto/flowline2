@@ -1,17 +1,14 @@
+#!/usr/bin/env python3
 """
-run.py
-
 Demonstrates how to programmatically set up and run a parameter sweep using
-the `FlowlineSweep` class.
+the new FlowlineSweep class that accepts objects directly.
+
+This example shows a mu vs gamma parameter sweep with custom post-processing.
 """
 from pathlib import Path
-import yaml
-import xarray as xr
-import matplotlib.pyplot as plt
-import tempfile
-import os
 import numpy as np
-import argparse
+import matplotlib.pyplot as plt
+import xarray as xr
 import sys
 
 # Add src directory to path to allow direct script execution
@@ -19,89 +16,108 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.append(str(ROOT_DIR))
 
 from src.flowline.sweep import FlowlineSweep
+from src.flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
+from src.flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
+from src.flowline.geometry import FlowlineGeometry
+import src.flowline.geometry as geometry_module
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run a programmatic flowline model parameter sweep."
+    # Parse command line arguments
+    args = parse_sweep_cli_args("Run a programmatic flowline model parameter sweep.")
+    
+    # Default output directory if not specified
+    if args.output_dir is None:
+        args.output_dir = str(Path(__file__).resolve().parent / 'output')
+    
+    # --- Base Configuration ---
+    base_config = FlowlineConfig(
+        ts=0,
+        tf=500,
+        delx=25,
+        delt=0.0125 / 16,
+        deltout=1.0,
+        min_thick=1.0
     )
-    parser.add_argument(
-        '--output-dir',
-        type=str,
-        default=str(Path(__file__).resolve().parent / "output"),
-        help="Directory to save sweep results."
+    
+    # --- Base Geometry ---
+    x_gr, zb_gr, w_geom = geometry_module.create_uniform_slope(
+        bed_characteristic_length=10000,
+        domain_extent=12000,
+        x_gr_points=61,
+        width=1000,
+        elevation_drop=1000
     )
-    args = parser.parse_args()
-
-    # --- 1. Define Sweep Configuration as a Python Dictionary ---
-    # This configuration is similar to `sweep_config.yml` but defined in code.
+    
+    # Create initial ice thickness profile
+    scale = 100
+    length = 5000
+    h_init = np.maximum(0, scale * (1 - x_gr / length))
+    
+    base_geometry = FlowlineGeometry(
+        x_gr=x_gr,
+        zb_gr=zb_gr,
+        w_geom=w_geom,
+        x_init=x_gr,
+        h_init=h_init
+    )
+    
+    # --- Base Forcing ---
+    base_forcing = TemperaturePrecipitationForcing(
+        ts=base_config.ts,
+        tf=base_config.tf,
+        T0=8.0,
+        P0=2.0,
+        gamma=6.5e-3,
+        mu=0.65
+    )
+    
+    # --- Sweep Parameters ---
     # We will sweep over the melt factor `mu` and the temperature lapse rate `gamma`.
     # For mu, we'll use a range of 0.2 centered on 0.65, with a 0.05 step.
     mu_values = np.round(np.arange(0.55, 0.75 + 0.01, 0.05), 2).tolist()
     # For gamma, a range of 0.2 is not physically plausible. We'll use a
     # range of 0.002 centered on 0.0065, with a 0.0005 step.
     gamma_values = np.round(np.arange(0.0055, 0.0075 + 0.0001, 0.0005), 4).tolist()
-
-    sweep_config = {
-        'base_parameters': {
-            'config': {
-                'ts': 0, 'tf': 100, 'delx': 100, 'delt': 0.0125 / 4,
-                'deltout': 10.0, 'min_thick': 1.0
-            },
-            'geometry': {
-                'function': 'flowline.geometry.create_uniform_slope',
-                'parameters': {
-                    'bed_characteristic_length': 10000, 'domain_extent': 12000,
-                    'x_gr_points': 61, 'width': 1000, 'elevation_drop': 1000
-                },
-                'h_init_params': {'scale': 100, 'length': 5000}
-            },
-            'forcing': {'mode': 'TP', 'T0': 8.0, 'P0': 2.0, 'gamma': 6.5e-3, 'mu': 0.65}
-        },
-        'sweep_parameters': {
-            'forcing.mu': mu_values,
-            'forcing.gamma': gamma_values
-        } # Total runs = 5 * 5 = 25
-    }
-
-    # --- 2. Set Up Temporary Config File and Output Directory ---
-    output_dir = Path(args.output_dir)
     
-    # Using a temporary file for the config is a clean way to pass it to FlowlineSweep
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yml', dir='.') as tmp:
-        yaml.dump(sweep_config, tmp)
-        config_filepath = tmp.name
+    sweep_parameters = {
+        'forcing.mu': mu_values,
+        'forcing.gamma': gamma_values
+    }  # Total runs = 5 * 5 = 25
     
-    print(f"Sweep config written to temporary file: {config_filepath}")
-    print(f"Sweep output will be saved to: {output_dir}")
-
-    # --- 3. Instantiate and Run the Sweep ---
-    # We can specify the number of workers (cores) to use.
+    print(f"Sweep parameters:")
+    print(f"  mu values: {mu_values}")
+    print(f"  gamma values: {gamma_values}")
+    print(f"  Total runs: {len(mu_values) * len(gamma_values)}")
+    
+    # --- Run the Sweep ---
     sweep = FlowlineSweep(
-        config_file=config_filepath,
-        output_dir=output_dir,
-        workers=4  # Use 4 cores, or set to None to use all available
+        base_config=base_config,
+        base_geometry=base_geometry,
+        base_forcing=base_forcing,
+        sweep_parameters=sweep_parameters,
+        **get_sweep_cli_kwargs(args)
     )
     
-    # This will execute all 8 simulations in parallel.
     sweep.run()
     
-    # Clean up the temporary config file
-    os.remove(config_filepath)
-    print(f"Temporary config file {config_filepath} removed.")
-
-    # --- 4. Load and Plot Combined Results ---
+    # --- Custom Post-Processing ---
+    print(f"\\nSweep completed. Results saved to: {args.output_dir}")
+    
+    # Load and analyze results
+    output_dir = Path(args.output_dir)
     combined_results_path = output_dir / "combined_results.nc"
+    
     if not combined_results_path.exists():
-        print("Combined results file not found. Cannot create plot.")
+        print("Combined results file not found. Cannot create plots.")
         return
-
+    
     print(f"Loading combined results from: {combined_results_path}")
     ds = xr.open_dataset(combined_results_path)
     
     # The result is an xarray Dataset with dimensions for each swept parameter.
-    print("\nCombined Dataset Structure:")
+    print("\\nCombined Dataset Structure:")
     print(ds)
-
+    
     # --- Plot 1: Length and Volume Trajectories ---
     # Calculate ice volume for each run
     # ds['w'] is 1D, so it will broadcast correctly with h(time, ..., x)
@@ -119,7 +135,7 @@ def main():
     plt.tight_layout()
     plot_path_len = output_dir / "sweep_plot_length_trajectories.png"
     plt.savefig(plot_path_len, dpi=150)
-    print(f"\nLength trajectory plot saved to: {plot_path_len}")
+    print(f"\\nLength trajectory plot saved to: {plot_path_len}")
     plt.close(g_len.fig)
     
     # Create a facet grid for volume trajectories
@@ -135,7 +151,7 @@ def main():
     plt.savefig(plot_path_vol, dpi=150)
     print(f"Volume trajectory plot saved to: {plot_path_vol}")
     plt.close(g_vol.fig)
-
+    
     # --- Plot 2: Sensitivity of Final State to Parameters ---
     # Extract final length and volume
     final_length_km = ds['edge'].isel(time=-1) / 1000
@@ -169,6 +185,12 @@ def main():
     plt.savefig(plot_path_sensitivity, dpi=150)
     print(f"Sensitivity plot saved to: {plot_path_sensitivity}")
     plt.close(fig)
+    
+    print("\\nCustom post-processing completed!")
+    print("This example demonstrates the new unified config+run approach with:")
+    print("- Direct object creation and manipulation")
+    print("- Integrated CLI argument handling")
+    print("- Custom post-processing and visualization")
 
 if __name__ == "__main__":
     main()

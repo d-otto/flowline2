@@ -12,7 +12,7 @@ example_scripts = sorted([Path(p) for p in glob.glob(str(EXAMPLE_DIR / '*/run.py
 ids = [p.relative_to(EXAMPLE_DIR).parent.name for p in example_scripts]
 
 @pytest.mark.parametrize("script_path", example_scripts, ids=ids)
-def test_example_script_runs_successfully(script_path, tmp_path):
+def test_example_script_runs_successfully(script_path):
     """
     Runs an example script as a subprocess to ensure it executes without errors.
     Outputs are redirected to a temporary directory provided by pytest.
@@ -20,8 +20,6 @@ def test_example_script_runs_successfully(script_path, tmp_path):
     command = [
         sys.executable,
         str(script_path),
-        '--output-dir',
-        str(tmp_path)
     ]
 
     # The example scripts now handle their own default config paths, so no

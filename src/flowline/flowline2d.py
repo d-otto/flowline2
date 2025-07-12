@@ -156,6 +156,9 @@ class flowline2d:
 
     def run(self, **kwargs):
         """Single entry point for running the model"""
+        # Extract no_progress parameter before updating config
+        no_progress = kwargs.pop('no_progress', False)
+        
         # Update config with any runtime overrides
         if kwargs:
             config_dict = asdict(self.config)
@@ -166,12 +169,12 @@ class flowline2d:
             self._initialize_output_arrays()
         
         try:
-            return self._run_model()
+            return self._run_model(no_progress=no_progress)
         except Exception as e:
             self.no_error = False
             raise FlowlineModelError(f"Model run failed: {e}") from e
 
-    def _run_model(self):
+    def _run_model(self, no_progress=False):
         """Unified model run method"""
         yr = self.config.ts - 1  # -1 because we increment at start of loop
         idx_out = 0
@@ -181,14 +184,19 @@ class flowline2d:
 
         h = self.h0.copy()  # Initial thickness
         
-        for i in tqdm(
-            range(0, self.nts),
-            unit_scale=self.config.delt,
-            unit="yrs",
-            bar_format="{desc}: {percentage:2.0f}%|{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}, {rate_fmt}{postfix}",
-            ascii=True,
-            ncols=100,
-        ):
+        if no_progress:
+            range_iter = range(0, self.nts)
+        else:
+            range_iter = tqdm(
+                range(0, self.nts),
+                unit_scale=self.config.delt,
+                unit="yrs",
+                bar_format="{desc}: {percentage:2.0f}%|{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}, {rate_fmt}{postfix}",
+                ascii=True,
+                ncols=100,
+            )
+        
+        for i in range_iter:
             t = self.config.delt * i  # time in fractional years
 
             # Update climate on integer year change
