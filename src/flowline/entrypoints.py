@@ -1,5 +1,4 @@
 from pathlib import Path
-import hashlib
 import copy
 import json
 import numpy as np
@@ -76,15 +75,13 @@ def run_spinup_simulation(params_tuple):
     """
     run_id, config, geometry, forcing, output_dir, no_progress = params_tuple
     
-    # Generate a unique hash for this parameter set for the filename
+    # Generate filename using run_id
     params_dict = {
         'config': config.__dict__ if hasattr(config, '__dict__') else str(config),
         'geometry': {'type': type(geometry).__name__, 'x_gr_shape': geometry.x_gr.shape if hasattr(geometry, 'x_gr') else None},
         'forcing': forcing.__dict__ if hasattr(forcing, '__dict__') else str(forcing)
     }
-    params_str = json.dumps(params_dict, sort_keys=True, default=str)
-    params_hash = hashlib.md5(params_str.encode('utf-8')).hexdigest()[:10]
-    filename = f"spinup_{run_id}_{params_hash}.nc"
+    filename = f"spinup_{run_id}.nc"
     
     spinup_dir = Path(output_dir) / 'spinup_profiles'
     spinup_dir.mkdir(parents=True, exist_ok=True)
@@ -154,15 +151,13 @@ def run_flowline_simulation(params_tuple):
     """
     run_id, config, geometry, forcing, output_dir, no_progress = params_tuple
     
-    # Generate a unique hash for this parameter set for the filename
+    # Generate filename using run_id
     params_dict = {
         'config': config.__dict__ if hasattr(config, '__dict__') else str(config),
         'geometry': {'type': type(geometry).__name__, 'x_gr_shape': geometry.x_gr.shape if hasattr(geometry, 'x_gr') else None},
         'forcing': forcing.__dict__ if hasattr(forcing, '__dict__') else str(forcing)
     }
-    params_str = json.dumps(params_dict, sort_keys=True, default=str)
-    params_hash = hashlib.md5(params_str.encode('utf-8')).hexdigest()[:10]
-    filename = f"run_{run_id}_{params_hash}.nc"
+    filename = f"run_{run_id}.nc"
     output_path = Path(output_dir) / filename
 
     try:
