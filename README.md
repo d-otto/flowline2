@@ -6,6 +6,7 @@ PyFlowline is a scientific modeling tool for simulating the dynamics of glacier 
 
 - **Shallow Ice Approximation (SIA)**: The model core solves the SIA equations for ice flow, which is suitable for many valley glaciers.
 - **Modular Design**: The model is structured into distinct components for `Configuration`, `Geometry`, and `Forcing`, allowing for easy extension and modification.
+- **Auto Steady-State**: Advanced `FlowlineSpinup` system for auto-generating steady-state profiles with target matching and perturbation testing.
 - **Flexible Forcing**: Supports multiple mass balance models, including temperature-precipitation-based schemes and direct mass balance inputs.
 - **Parameter Sweeps**: Integrated with Dask to perform parallelized parameter sweeps efficiently across multiple CPU cores. This is ideal for sensitivity studies and model calibration.
 - **Standardized Outputs**: Simulation results are saved in NetCDF format (`.nc`), complete with metadata for reproducibility. QC plots are automatically generated for single runs and sweeps.
@@ -57,7 +58,10 @@ This will produce two output files in the `examples/example_outputs/` directory:
 
 ### Running a Parameter Sweep
 
-The model can run a "sweep" of simulations over a range of parameters. This is configured using a YAML file and executed via the command-line interface.
+The model supports two approaches for parameter sweeps:
+
+#### Basic Parameter Sweep
+Traditional sweeps are configured using a YAML file and executed via the command-line interface.
 
 1.  **Configure the sweep**: An example is provided in `sweep_config.yml`. Edit it to define the base parameters and the sweep parameters. The script will generate a run for every possible combination of the sweep parameter values.
 
@@ -96,12 +100,28 @@ The model can run a "sweep" of simulations over a range of parameters. This is c
     flowline-sweep sweep_config.yml -o my_sweep_results --workers 4
     ```
 
+#### Auto Steady-State Sweep
+For advanced experiments requiring auto-generated steady-state profiles with target matching:
+
+```bash
+python examples/auto_steady_state_demo/run.py --workers 4
+```
+
+This approach:
+- Generates steady-state profiles for each parameter set
+- Applies target matching to achieve comparable glacier lengths
+- Tests response to climate perturbations (e.g., +1°C warming)
+- Uses the new 4-object architecture (Config, Geometry, Forcing, Spinup)
+
+See `examples/auto_steady_state_demo/run.py` for a complete example using `FlowlineSpinup` objects.
+
 ## Project Structure
 
 - `src/flowline/`: The core source code for the flowline model.
     - `flowline2d.py`: The main model class and SIA solver.
     - `config.py`, `geometry.py`, `forcing.py`: Modules defining the modular components.
     - `sweep.py`: Logic for managing and executing parameter sweeps.
+    - `spinup.py`: FlowlineSpinup class for auto steady-state generation.
     - `entrypoints.py`: Worker function for running simulations.
     - `visualization.py`: Plotting functions.
 - `src/cli/`: Command-line interfaces for running parts of the model (e.g., sweeps).

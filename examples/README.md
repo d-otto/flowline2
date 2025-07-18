@@ -24,3 +24,5 @@ The scripts will generate plots and save them to the `examples/example_outputs` 
 - `example_forcing_variations.py`: Shows how to configure different mass balance scenarios, including using direct mass balance with step changes or noise, and compares the glacier's response. This script also shows how to perform a spin-up run to achieve a steady state.
 
 - `example_sweep.py`: Demonstrates how to programmatically set up and execute a parameter sweep using the `FlowlineSweep` class, without using the command-line interface. It creates a sweep configuration on the fly, runs the sweep, and plots the combined results.
+
+- `auto_steady_state_demo/run.py`: **NEW** Demonstrates the advanced `FlowlineSpinup` system for auto-generating steady-state profiles. Shows target matching to achieve comparable glacier lengths across parameter sets, lambda-based perturbations for response testing, and the new 4-object architecture (Config, Geometry, Forcing, Spinup).

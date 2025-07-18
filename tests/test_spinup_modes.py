@@ -37,14 +37,16 @@ def base_objects():
     # Base configuration
     config = FlowlineConfig(
         ts=0, tf=100, delx=25, delt=0.1, deltout=1,
-        mu=0.65, h_init=10.0
+        mu=0.65
     )
     
     # Base geometry
     x_gr, zb_gr, w_geom = create_uniform_slope(
-        x_max=2000, dx=25, slope=0.05, width=500
+        domain_extent=2000, x_gr_points=81, elevation_drop=100, 
+        width=500, bed_characteristic_length=1000
     )
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+    h_init = np.maximum(0, 10.0 * (1 - x_gr / 1000))  # Simple initial profile
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
     
     # Base forcing
     forcing = TemperaturePrecipitationForcing(
