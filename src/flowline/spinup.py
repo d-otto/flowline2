@@ -8,16 +8,13 @@ This module provides functionality to:
 4. Integrate cleanly with the FlowlineSweep architecture
 """
 
-import subprocess
 from pathlib import Path
 from copy import deepcopy
-import json
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Union, Callable, Tuple
+from typing import Dict, Any, Optional
 
 import numpy as np
-import dask
-from scipy.optimize import minimize_scalar, OptimizeResult
+from scipy.optimize import minimize_scalar
 from flowline.entrypoints import run_spinup_simulation
 from flowline.utils import objects_equal, object_hash
 
@@ -409,27 +406,31 @@ class FlowlineSpinup:
         self.forcing = deepcopy(forcing)
         self.target_matching = target_matching
         
-        
         # Ensure spinup timeframe is consistent between config and forcing
         if hasattr(self.forcing, 'tf'):
             self.forcing.tf = self.config.tf
     
-    def _setup_optimization_components(self):
-        """Setup optimization components from target_matching configuration."""
-        # Get cost function - must be a class or instance
-        cost_function_spec = self.target_matching['cost_function']
-        if isinstance(cost_function_spec, type):
-            self.cost_function = cost_function_spec()
-        else:
-            self.cost_function = cost_function_spec
+    @property
+    def cost_function(self):
+        """Get cost function, instantiating if needed.
         
-        # Get steady-state detector - must be a class or instance
-        detector_spec = self.target_matching['steady_state_detector']
-        if isinstance(detector_spec, type):
-            self.steady_state_detector = detector_spec()
-        else:
-            self.steady_state_detector = detector_spec
+        Accesses target_matching['cost_function'] and instantiates it if it's a class.
+        Will fail with KeyError if target_matching is missing or doesn't contain 'cost_function'.
+        This is intentional - no silent defaults.
+        """
+        spec = self.target_matching['cost_function']
+        return spec() if isinstance(spec, type) else spec
+    
+    @property 
+    def steady_state_detector(self):
+        """Get steady-state detector, instantiating if needed.
         
+        Accesses target_matching['steady_state_detector'] and instantiates it if it's a class.
+        Will fail with KeyError if target_matching is missing or doesn't contain 'steady_state_detector'.
+        This is intentional - no silent defaults.
+        """
+        spec = self.target_matching['steady_state_detector']
+        return spec() if isinstance(spec, type) else spec
     
     
     def generate_profile(self, output_dir, run_id, no_progress=False):
@@ -483,8 +484,8 @@ class FlowlineSpinup:
         """
         adjustment_parameter = self.target_matching['adjustment_parameter']
         targets = self.target_matching['targets']
-        tolerance = self.target_matching.get('tolerance', 100)
-        max_iterations = self.target_matching.get('max_iterations', 10)
+        tolerance = self.target_matching["tolerance"]
+        max_iterations = self.target_matching["max_iterations"]
         
         # Initialize optimization history tracking
         self._optimization_history = {'params': [], 'costs': [], 'lengths': [], 'states': []}
@@ -519,7 +520,7 @@ class FlowlineSpinup:
                 self._optimization_history['lengths'].append(final_length)
                 self._optimization_history['states'].append(state)
             else:
-                print(f"  -> No optimization state available")
+                print("  -> No optimization state available")
                 self._optimization_history['params'].append(param_value)
                 self._optimization_history['costs'].append(cost)
                 self._optimization_history['lengths'].append(0)
@@ -598,7 +599,7 @@ class FlowlineSpinup:
             plt.savefig('optimization_progress.png', dpi=150, bbox_inches='tight')
             plt.close()
             
-            print(f"Optimization progress plot saved to: optimization_progress.png")
+            print("Optimization progress plot saved to: optimization_progress.png")
             
         except ImportError:
             print("Matplotlib not available for plotting")
@@ -662,7 +663,7 @@ class FlowlineSpinup:
         model.steady_state_achieved = False
         
         # Run simulation with custom monitoring loop
-        print(f"Starting custom monitoring loop for optimization...")
+        print("Starting custom monitoring loop for optimization...")
         cost = self._run_custom_monitoring_loop(model, no_progress)
         print(f"Custom monitoring loop completed with cost: {cost}")
         return cost
@@ -758,7 +759,7 @@ class FlowlineSpinup:
         
         # Return final cost
         if model.optimization_cost == float('inf'):
-            print(f"WARNING: Cost is still infinite! Simulation may not have reached steady state.")
+            print("WARNING: Cost is still infinite! Simulation may not have reached steady state.")
             print(f"Final simulation time: {t:.1f} years")
             print(f"Steady state achieved: {getattr(model, 'steady_state_achieved', False)}")
             print(f"Number of monitoring history entries: {len(model.time_history)}")
