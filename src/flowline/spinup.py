@@ -63,6 +63,26 @@ class CostFunction(ABC):
         """
         pass
 
+    def initial_guess(self, geometry: Any, forcing: Any, targets: Dict[str, Any]) -> Optional[float]:
+        """
+        Optional method to provide initial parameter guess for optimization.
+        
+        Parameters
+        ----------
+        geometry : FlowlineGeometry
+            Geometry object for the simulation
+        forcing : MassBalanceForcing
+            Forcing object for the simulation
+        targets : dict
+            Target values for optimization
+            
+        Returns
+        -------
+        float or None
+            Initial guess for the parameter to optimize, or None if no guess available
+        """
+        return None
+
 
 class LengthOnlyCost(CostFunction):
     """Cost function that only considers glacier length."""
@@ -79,6 +99,62 @@ class LengthOnlyCost(CostFunction):
         target_length = targets['target_length']
         error = current_length - target_length
         return abs(error)
+
+    def initial_guess(self, geometry: Any, forcing: Any, targets: Dict[str, Any]) -> Optional[float]:
+        """Calculate initial guess for glacier length based on ELA and geometry."""
+        try:
+            # Import here to avoid circular imports
+            from flowline.diagnostics import calc_ela
+            
+            # Calculate ELA from mass balance parameters - let it fail if attributes missing
+            ela = calc_ela(forcing.P0, forcing.T0, forcing.gamma, forcing.mu)
+            
+            # Find where bed elevation equals ELA
+            # Use the high-resolution geometry grid for accuracy
+            x_gr = geometry.x_gr
+            zb_gr = geometry.zb_gr
+            
+            # Find the index where bed elevation is closest to ELA
+            ela_idx_hr = np.argmin(np.abs(zb_gr - ela))
+            
+            # Get the distance from origin to ELA
+            ela_distance = x_gr[ela_idx_hr]
+            
+            # Check if we have actual width information (all non-zero widths)
+            if not np.all(geometry.w_geom == 0):
+                # Use area-based calculation
+                
+                # Calculate area above ELA (60% of total area assumption)
+                # First estimate total area up to ELA
+                area_to_ela = np.sum(geometry.w_geom[:ela_idx_hr]) * (x_gr[1] - x_gr[0])
+                
+                # Total area should be such that 60% is above ELA
+                # So: area_above_ela = 0.6 * total_area
+                # And: area_above_ela ≈ area_to_ela (rough approximation)
+                # Therefore: total_area ≈ area_to_ela / 0.6
+                estimated_total_area = area_to_ela / 0.6
+                
+                # Find the length that gives this total area
+                # Work backwards from area to find terminus position
+                cumulative_area = 0.0
+                dx = x_gr[1] - x_gr[0]
+                
+                for i in range(len(x_gr)):
+                    cumulative_area += geometry.w_geom[i] * dx
+                    if cumulative_area >= estimated_total_area:
+                        return x_gr[i]
+                        
+            else:
+                # Use length-based calculation (no width info)
+                # Assume 60% of glacier length is above ELA
+                # So: length_above_ela = 0.6 * total_length
+                # And: length_above_ela ≈ ela_distance
+                # Therefore: total_length ≈ ela_distance / 0.6
+                return ela_distance / 0.6
+                
+        except Exception:
+            # If initial guess fails, return None
+            return None
 
 
 class LengthAndAverageThicknessCost(CostFunction):
@@ -283,126 +359,8 @@ def calculate_response_time(h, b, delx, edge_idx, ela_idx, **kwargs):
     return tau
 
 
-def initial_length_guess(geometry, forcing, **kwargs):
-    """
-    Calculate initial guess for glacier length based on ELA and geometry.
-    
-    Uses the ELA calculation to determine where the glacier should terminate,
-    then estimates the length needed to reach that elevation.
-    
-    Parameters
-    ----------
-    geometry : FlowlineGeometry
-        Geometry object containing bed elevation and width profiles
-    forcing : MassBalanceForcing
-        Forcing object with mass balance parameters
-    **kwargs : dict
-        Additional parameters for initial guess
-        
-    Returns
-    -------
-    float
-        Initial guess for glacier length (m)
-    """
-    # Import here to avoid circular imports
-    from flowline.diagnostics import calc_ela
-    
-    # Calculate ELA from mass balance parameters - let it fail if attributes missing
-    ela = calc_ela(forcing.P0, forcing.T0, forcing.gamma, forcing.mu)
-    
-    # Find where bed elevation equals ELA
-    # Use the high-resolution geometry grid for accuracy
-    x_gr = geometry.x_gr
-    zb_gr = geometry.zb_gr
-    
-    # Find the index where bed elevation is closest to ELA
-    ela_idx_hr = np.argmin(np.abs(zb_gr - ela))
-    
-    # Get the distance from origin to ELA
-    ela_distance = x_gr[ela_idx_hr]
-    
-    # Check if we have actual width information (all non-zero widths)
-    if not np.all(geometry.w_geom == 0):
-        # Use area-based calculation
-        
-        # Calculate area above ELA (60% of total area assumption)
-        # First estimate total area up to ELA
-        area_to_ela = np.sum(geometry.w_geom[:ela_idx_hr]) * (x_gr[1] - x_gr[0])
-        
-        # Total area should be such that 60% is above ELA
-        # So: area_above_ela = 0.6 * total_area
-        # And: area_above_ela ≈ area_to_ela (rough approximation)
-        # Therefore: total_area ≈ area_to_ela / 0.6
-        estimated_total_area = area_to_ela / 0.6
-        
-        # Find the length that gives this total area
-        # Work backwards from area to find terminus position
-        cumulative_area = 0.0
-        dx = x_gr[1] - x_gr[0]
-        
-        for i in range(len(x_gr)):
-            cumulative_area += geometry.w_geom[i] * dx
-            if cumulative_area >= estimated_total_area:
-                initial_length = x_gr[i]
-                break
-            
-    else:
-        # Use length-based calculation (no width info)
-        # Assume 60% of glacier length is above ELA
-        # So: length_above_ela = 0.6 * total_length
-        # And: length_above_ela ≈ ela_distance
-        # Therefore: total_length ≈ ela_distance / 0.6
-        initial_length = ela_distance / 0.6
-    
-    return initial_length
 
 
-def length_change_guess(geometry, forcing, mass_balance_change, **kwargs):
-    """
-    Calculate expected change in length for parameter bounds estimation.
-    
-    Uses the LinearModel to estimate length sensitivity to mass balance changes.
-    
-    Parameters
-    ----------
-    geometry : FlowlineGeometry
-        Geometry object containing glacier dimensions
-    forcing : MassBalanceForcing
-        Forcing object with current parameters
-    mass_balance_change : float
-        Change in mass balance (m/year)
-    **kwargs : dict
-        Additional parameters including:
-        - 'tau': response time (years), if available
-        - 'H': ice thickness (m), if available
-        
-    Returns
-    -------
-    float
-        Expected change in glacier length (m)
-    """
-    from flowline.linear_model import LinearModel
-    
-    # Get current length estimate
-    current_length = initial_length_guess(geometry, forcing)
-    
-    # Estimate ice thickness (rough approximation)
-    H = kwargs.get('H', 100.0)  # Default 100m thickness
-    
-    # Get response time
-    tau = kwargs.get('tau')
-    if tau is None:
-        # Use the calculate_response_time function
-        # For now, use a reasonable default
-        tau = 50.0  # Default 50 years
-    
-    # Create linear model
-    linear_model = LinearModel(L_bar=current_length, H=H, tau=tau)
-    
-    # Calculate steady-state length change
-    length_change = linear_model.steady_state_length_change(mass_balance_change)
-    
-    return abs(length_change)
 
 
 
@@ -450,9 +408,6 @@ class FlowlineSpinup:
         self.forcing = deepcopy(forcing)
         self.target_matching = target_matching
         
-        # Initialize optimization components if target matching is configured
-        if self.target_matching:
-            self._setup_optimization_components()
         
         # Ensure spinup timeframe is consistent between config and forcing
         if hasattr(self.forcing, 'tf'):
@@ -474,36 +429,7 @@ class FlowlineSpinup:
         else:
             self.steady_state_detector = detector_spec
         
-        # Set up optimization bounds using initial guess functions
-        self._setup_optimization_bounds()
     
-    def _setup_optimization_bounds(self):
-        """Setup optimization bounds using initial guess functions."""
-        if self.target_matching and 'parameter_bounds' in self.target_matching:
-            # Use explicitly provided bounds
-            self.optimization_bounds = self.target_matching['parameter_bounds']
-        elif self.target_matching:
-            # Use guess functions to estimate bounds
-            targets = self.target_matching['targets']
-            target_length = targets.get('target_length', 8000)
-            
-            # Get initial length guess
-            initial_length = initial_length_guess(self.geometry, self.forcing)
-            
-            # Get expected length change for bounds
-            # Estimate mass balance change from parameter sensitivity
-            mass_balance_change = 1.0  # Default 1 m/year change
-            length_change = length_change_guess(self.geometry, self.forcing, mass_balance_change)
-            
-            # Estimate parameter bounds based on length sensitivity
-            # This is a placeholder - you'll provide the actual relationship
-            current_param = getattr(self.forcing, self.target_matching['adjustment_parameter'], 8.0)
-            param_range = abs(length_change / 1000.0)  # Rough estimate
-            
-            self.optimization_bounds = (
-                current_param - param_range,
-                current_param + param_range
-            )
     
     def generate_profile(self, output_dir, run_id, no_progress=False):
         """
