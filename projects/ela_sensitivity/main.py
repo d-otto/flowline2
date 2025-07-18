@@ -557,38 +557,38 @@ if __name__ == "__main__":
     print(f"Mass balance dataset shape: {mb_data.mass_balance.shape}")
     print(f"ELA dataset shape: {ela_data.ELA.shape}")
     
-    # # Create visualizations
+    # Create visualizations
     # print("Creating mass balance profiles...")
     # fig1 = plot_mass_balance_profiles(mb_data, ela_data)
     # plt.show()
     
-    # print("Creating ELA sensitivity analysis...")
-    # fig2 = plot_ela_sensitivity(ela_data)
-    # plt.show()
+    print("Creating ELA sensitivity analysis...")
+    fig2 = plot_ela_sensitivity(ela_data)
+    plt.show()
     
-    # print("Creating mass balance profiles for fixed ELA...")
-    # fig_new = plot_mass_balance_gradient_for_fixed_ela(mb_data, P0=ela_data.P0.item())
-    # plt.show()
+    print("Creating mass balance profiles for fixed ELA...")
+    fig_new = plot_mass_balance_gradient_for_fixed_ela(mb_data, P0=ela_data.P0.item())
+    plt.show()
 
     print("Creating mass balance profiles for fixed ELA (solving for P0)...")
     fig_p0 = plot_mass_balance_gradient_for_fixed_ela_p0(mb_data)
     plt.show()
 
-    # print("Creating 3D ELA surface (fixed T0)...")
-    # fig3a = plot_3d_ela_surface(ela_data, fixed_param="T0")
-    # plt.show()
+    print("Creating 3D ELA surface (fixed T0)...")
+    fig3a = plot_3d_ela_surface(ela_data, fixed_param="T0")
+    plt.show()
 
-    # print("Creating combined 3D ELA isolines...")
-    # fig3b = plot_combined_3d_isolines(ela_data)
-    # plt.show()
+    print("Creating combined 3D ELA isolines...")
+    fig3b = plot_combined_3d_isolines(ela_data)
+    plt.show()
     
-    # print("Creating 3D ELA surface (fixed ELA)...")
-    # fig3c = plot_3d_ela_surface(ela_data, fixed_param="ELA")
-    # plt.show()
+    print("Creating 3D ELA surface (fixed ELA)...")
+    fig3c = plot_3d_ela_surface(ela_data, fixed_param="ELA")
+    plt.show()
     
-    # print("Creating ELA warming response analysis...")
-    # fig4_main, fig4_profiles = plot_ela_warming_response(mb_data)
-    # plt.show()
+    print("Creating ELA warming response analysis...")
+    fig4_main, fig4_profiles = plot_ela_warming_response(mb_data)
+    plt.show()
     
     # Print some statistics
     print("\nELA Statistics:")

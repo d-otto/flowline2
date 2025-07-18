@@ -47,14 +47,17 @@ def main():
         elevation_drop=1000
     )
     
-    # For spinup, we don't want to start with a pre-defined ice profile
-    # The spinup will create its own steady-state profile
+    # Create reasonable initial ice thickness profile to avoid zero thickness issues
+    scale = 100
+    length = 5000
+    h_init = np.maximum(0, scale * (1 - x_gr / length))
+    
     base_geometry = FlowlineGeometry(
         x_gr=x_gr,
         zb_gr=zb_gr,
         w_geom=w_geom,
         x_init=x_gr,
-        h_init=np.zeros_like(x_gr)  # Start with no ice for spinup
+        h_init=h_init  # Reasonable initial profile to avoid numerical issues
     )
     
     # --- Base Forcing ---
@@ -74,21 +77,38 @@ def main():
     }
     
     # --- Spinup Configuration ---
-    # Parameters here override base parameters for the spin-up stage only
+    # Use shared spinup mode - all runs can share the same equilibrium state
+    # since we're only varying gamma (lapse rate) in the main simulation
+    
+    # Create spinup config and forcing objects
+    spinup_base_config = FlowlineConfig(
+        ts=0,
+        tf=500,  # Run for 500 years to reach steady state
+        delx=25,
+        delt=0.00078125,
+        deltout=1,  # Always use deltout=1
+        min_thick=1.0
+    )
+    
+    spinup_forcing = TemperaturePrecipitationForcing(
+        ts=0,
+        tf=500,
+        T0=8.0,  # Use a stable climate for the spin-up
+        P0=2.0,
+        mu=0.65,  # Match base melt factor
+        gamma=0.0065  # Use a standard lapse rate for spinup
+    )
+    
     spinup_config = {
+        'mode': 'shared',
         'enabled': True,
-        'config': {
-            'tf': 500  # Run for 500 years to reach steady state
-        },
-        'forcing': {
-            'T0': 8.0,  # Use a stable climate for the spin-up
-            'P0': 2.0
-        }
+        'config': spinup_base_config,
+        'forcing': spinup_forcing
     }
     
     print(f"Spinup sweep setup:")
     print(f"  Lapse rate values: {sweep_parameters['forcing.gamma']}")
-    print(f"  Spinup climate: T0={spinup_config['forcing']['T0']}°C, P0={spinup_config['forcing']['P0']}m/yr")
+    print(f"  Spinup climate: T0={spinup_forcing.T0}°C, P0={spinup_forcing.P0}m/yr")
     print(f"  Main run climate: T0={base_forcing.T0}°C, P0={base_forcing.P0}m/yr")
     print(f"  Total runs: {len(sweep_parameters['forcing.gamma'])}")
     

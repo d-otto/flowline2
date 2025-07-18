@@ -60,17 +60,17 @@ def main():
         args.output_dir = str(Path(__file__).resolve().parent / 'output')
     
     # --- Set up reproducible random number generation ---
-    base_seed = 42
+    base_seed = 1234
     rng = np.random.default_rng(base_seed)
     
     # --- Base Configuration ---
     base_config = FlowlineConfig(
         ts=0,
-        tf=500,
-        delx=25,
-        delt=0.0125/16,  # Stable timestep
+        tf=10000,
+        delx=50,
+        delt=0.0125/4,  # Stable timestep
         deltout=1.0,  # Output every year
-        min_thick=10.0
+        min_thick=5.0
     )
     
     # --- Base Geometry ---
@@ -98,7 +98,7 @@ def main():
     
     # --- Generate Stochastic Temperature Timeseries ---
     # Different temperature noise standard deviations to test
-    temp_noise_std_devs = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0]  # °C
+    temp_noise_std_devs = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]  # °C
     base_temperature = 8.0  # °C mean temperature T0
     
     # Generate temperature noise timeseries for each standard deviation
@@ -117,7 +117,7 @@ def main():
     # --- Set up Parameter Sweep with Stochastic Temperature Forcing ---
     # Generate all the temperature noise timeseries we'll need
     # Need to generate for the longer of spinup duration or main run duration
-    spinup_duration = 200  # From spinup_config
+    spinup_duration = 500  # From spinup_config
     max_duration = max(base_config.tf, spinup_duration)
     
     temp_noise_timeseries = []
@@ -152,12 +152,15 @@ def main():
     print(f"Temperature noise timeseries lengths: {[len(ts) for ts in temp_noise_timeseries]}")
     
     # --- Spinup Configuration ---
-    # Enable spinup with no temperature noise for steady initialization
+    # Use shared spinup with stable climate (no temperature noise)
     spinup_config = {
+        'mode': 'shared',
         'enabled': True,
         'config': {
-            'tf': spinup_duration
-        }
+            'tf': spinup_duration,
+            'deltout': 1  # Always use deltout=1
+        },
+        'forcing': base_forcing
     }
     
     # --- Run the Sweep ---
@@ -206,7 +209,11 @@ def main():
         glacier_area_km2 = ((ds['h'] > 0.1) * ds['w'] * ds.attrs['delx']).sum(dim='x') / 1e6
         
         # 1. Length time series (overlapping)
-        colors = ['blue', 'green', 'orange', 'red', 'purple', 'brown']
+        #colors = ['blue', 'green', 'orange', 'red', 'purple', 'brown', 'black', 'violet', 'yellow']
+        cmap = plt.get_cmap("plasma", lut=len(temp_noise_std_devs))
+        colors = [cmap(i) for i in np.linspace(0, 1, len(temp_noise_std_devs))]
+
+        
         # The sweep created a dimension based on the parameter name, check what we have
         sweep_dim = None
         for dim in ds.dims:
@@ -215,18 +222,18 @@ def main():
                 break
         
         if sweep_dim and len(ds[sweep_dim]) >= len(temp_noise_std_devs):
-            for i, (std_dev, color) in enumerate(zip(temp_noise_std_devs, colors)):
+            for i, std_dev in enumerate(temp_noise_std_devs):
                 length_series = ds['edge'].isel({sweep_dim: i}) / 1000
                 label = f'σ_T = {std_dev:.2f} °C'
                 axes[0, 0].plot(ds['time'], length_series, alpha=0.8, linewidth=2, 
-                               color=color, label=label)
+                               color=colors[i % len(temp_noise_std_devs)], label=label)
         else:
             length_series = ds['edge'] / 1000
             if len(length_series.shape) > 1:
                 # If we have multiple runs, plot them all
                 for i in range(length_series.shape[0]):
                     axes[0, 0].plot(ds['time'], length_series[i], alpha=0.8, linewidth=2, 
-                                   color=colors[i % len(colors)], label=f'Run {i}')
+                                   color=colors[i % len(temp_noise_std_devs)], label=f'Run {i}')
             else:
                 axes[0, 0].plot(ds['time'], length_series, alpha=0.8, linewidth=2)
         
@@ -238,16 +245,16 @@ def main():
         
         # 2. Volume time series (overlapping)
         if sweep_dim and len(ds[sweep_dim]) >= len(temp_noise_std_devs):
-            for i, (std_dev, color) in enumerate(zip(temp_noise_std_devs, colors)):
+            for i, std_dev in enumerate(temp_noise_std_devs):
                 volume_series = ice_volume_km3.isel({sweep_dim: i})
                 label = f'σ_T = {std_dev:.2f} °C'
                 axes[0, 1].plot(ds['time'], volume_series, alpha=0.8, linewidth=2, 
-                               color=color, label=label)
+                               color=colors[i % len(temp_noise_std_devs)], label=label)
         else:
             if len(ice_volume_km3.shape) > 1:
                 for i in range(ice_volume_km3.shape[0]):
                     axes[0, 1].plot(ds['time'], ice_volume_km3[i], alpha=0.8, linewidth=2, 
-                                   color=colors[i % len(colors)], label=f'Run {i}')
+                                   color=colors[i % len(temp_noise_std_devs)], label=f'Run {i}')
             else:
                 axes[0, 1].plot(ds['time'], ice_volume_km3, alpha=0.8, linewidth=2)
         
@@ -261,17 +268,17 @@ def main():
         # Create a low-pass filter with a 60-year cutoff period, which gives an
         # effective 30-year filter with sosfiltfilt as requested.
         # Wn = (1/60) / (fs/2) = (1/60) / 0.5 = 1/30
-        sos = signal.butter(4, 1/30, 'low', output='sos')
+        sos = signal.butter(4, 1/60, 'low', output='sos')
 
         time_points = np.arange(base_config.ts, base_config.tf)  # One point per year
         if 'total_mass_balance' in ds.variables and sweep_dim and len(ds[sweep_dim]) >= len(temp_noise_std_devs):
-            for i, (std_dev, color) in enumerate(zip(temp_noise_std_devs, colors)):
+            for i, std_dev in enumerate(temp_noise_std_devs):
                 mb_series = ds['total_mass_balance'].isel({sweep_dim: i})
                 mb_series_filtered = signal.sosfiltfilt(sos, mb_series)
                 label = f'σ_T = {std_dev:.2f} °C'
                 plot_years = len(mb_series_filtered)
                 axes[1, 0].plot(ds['time'][:plot_years], mb_series_filtered[:plot_years], alpha=0.7, linewidth=1, 
-                               color=color, label=label)
+                               color=colors[i % len(temp_noise_std_devs)], label=label)
         
         axes[1, 0].set_xlabel('Time (years)')
         axes[1, 0].set_ylabel('Total Mass Balance (m/yr)')
@@ -281,7 +288,7 @@ def main():
         
         # 4. Temperature anomaly (Tp) time series
         time_points = np.arange(base_config.ts, base_config.tf)  # One point per year
-        for i, (std_dev, color) in enumerate(zip(temp_noise_std_devs, colors)):
+        for i, std_dev in enumerate(temp_noise_std_devs):
             # Regenerate the temperature noise for display purposes (same seed)
             local_rng = np.random.default_rng(base_seed + i)
             temp_noise = generate_temperature_noise(
@@ -291,7 +298,7 @@ def main():
             label = f'σ_T = {std_dev:.2f} °C'
             plot_years = len(temp_noise_filtered)
             axes[1, 1].plot(time_points[:plot_years], temp_noise_filtered[:plot_years], alpha=0.8, linewidth=1, 
-                           color=color, label=label)
+                           color=colors[i % len(temp_noise_std_devs)], label=label)
         
         axes[1, 1].axhline(0, color='black', linestyle='--', alpha=0.8, label='Mean: 0 °C')
         axes[1, 1].set_xlabel('Time (years)')
@@ -306,21 +313,21 @@ def main():
         # Calculate common bins for length histograms with a fixed width of 100m
         min_len = all_lengths_km.min().item()
         max_len = all_lengths_km.max().item()
-        bin_width_len_km = 100 / 1000  # 100m in km
+        bin_width_len_km = 50 / 1000  # 50m in km
         bins_len = np.arange(min_len, max_len + bin_width_len_km, bin_width_len_km)
         
         if sweep_dim and len(ds[sweep_dim]) > 1:
             # Create overlapping histograms for each noise level
             for i, std_dev in enumerate(temp_noise_std_devs[:len(ds[sweep_dim])]):
                 length_timeseries = all_lengths_km.isel({sweep_dim: i})
-                axes[2, 0].hist(length_timeseries.values, bins=bins_len, alpha=0.4, 
-                               label=f'σ_T = {std_dev:.2f}°C', color=colors[i % len(colors)],
-                               edgecolor=colors[i % len(colors)], linewidth=1.5)
+                axes[2, 0].hist(length_timeseries.values, bins=bins_len, alpha=0.7, 
+                               label=f'σ_T = {std_dev:.2f}°C', color=colors[i % len(temp_noise_std_devs)],
+                               edgecolor=colors[i % len(temp_noise_std_devs)], linewidth=1.5, histtype="step", density=True)
             axes[2, 0].legend()
         else:
             # Single histogram of all length values across time
             axes[2, 0].hist(all_lengths_km.values.flatten(), bins=bins_len, 
-                           alpha=0.7, edgecolor='black', color='skyblue')
+                           alpha=0.7, edgecolor='black', color='skyblue', histtype="step", density=True)
         
         axes[2, 0].set_xlabel('Glacier Length (km)')
         axes[2, 0].set_ylabel('Frequency')
@@ -333,21 +340,21 @@ def main():
         # Calculate common bins for volume histograms with a fixed width
         min_vol = all_volumes_km3.min().item()
         max_vol = all_volumes_km3.max().item()
-        bin_width_vol_km3 = 0.05  # km^3
+        bin_width_vol_km3 = 0.01  # km^3
         bins_vol = np.arange(min_vol, max_vol + bin_width_vol_km3, bin_width_vol_km3)
         
         if sweep_dim and len(ds[sweep_dim]) > 1:
             # Create overlapping histograms for each noise level
             for i, std_dev in enumerate(temp_noise_std_devs[:len(ds[sweep_dim])]):
                 volume_timeseries = all_volumes_km3.isel({sweep_dim: i})
-                axes[2, 1].hist(volume_timeseries.values, bins=bins_vol, alpha=0.4, 
-                               label=f'σ_T = {std_dev:.2f}°C', color=colors[i % len(colors)],
-                               edgecolor=colors[i % len(colors)], linewidth=1.5)
+                axes[2, 1].hist(volume_timeseries.values, bins=bins_vol, alpha=0.7, 
+                               label=f'σ_T = {std_dev:.2f}°C', color=colors[i % len(temp_noise_std_devs)],
+                               edgecolor=colors[i % len(temp_noise_std_devs)], linewidth=1.5, histtype="step", density=True)
             axes[2, 1].legend()
         else:
             # Single histogram of all volume values across time
             axes[2, 1].hist(all_volumes_km3.values.flatten(), bins=bins_vol, 
-                           alpha=0.7, edgecolor='black', color='lightcoral')
+                           alpha=0.7, edgecolor='black', color='lightcoral', histtype="step", density=True)
         
         axes[2, 1].set_xlabel('Glacier Volume (km³)')
         axes[2, 1].set_ylabel('Frequency')

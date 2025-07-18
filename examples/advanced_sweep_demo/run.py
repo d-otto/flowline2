@@ -122,11 +122,17 @@ def main():
     print("Note: For full bed curvature sweep, run multiple times with different geometries")
     
     # --- Spinup Configuration ---
+    # Use shared spinup for all runs - efficient for multiple mass balance scenarios
     spinup_config = {
-        'enabled': False,
-        # 'config': {
-        #     'tf': 2000  # Long spinup for direct mass balance to reach equilibrium
-        # }
+        'mode': 'shared',
+        'enabled': True,
+        'config': {
+            'tf': 2000,  # Long spinup for direct mass balance to reach equilibrium
+            'deltout': 1  # Always use deltout=1
+        },
+        'forcing': {
+            'b0': 0.5  # Use base mass balance rate for equilibrium spinup
+        }
     }
     
     # --- Run the Sweep ---

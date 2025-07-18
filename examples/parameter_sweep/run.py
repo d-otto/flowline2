@@ -84,14 +84,17 @@ def main():
     }
     
     # --- Spinup Configuration ---
-    # Optional spinup configuration
+    # Use shared spinup - all temperature scenarios start from same equilibrium
     spinup_config = {
+        'mode': 'shared',
         'enabled': True,
         'config': {
-            'tf': 500  # Run for 500 years to reach steady state
+            'tf': 500,  # Run for 500 years to reach steady state
+            'deltout': 1  # Always use deltout=1
         },
         'forcing': {
-            'T0': 7.0  # Use stable climate for spinup
+            'T0': 7.0,  # Use stable climate for spinup
+            'P0': 2.0   # Match base precipitation
         }
     }
     

@@ -47,14 +47,17 @@ def main():
         elevation_drop=1000
     )
     
-    # For spinup, we don't want to start with a pre-defined ice profile
-    # The spinup will create its own steady-state profile
+    # Create reasonable initial ice thickness profile to avoid zero thickness issues
+    scale = 100
+    length = 5000
+    h_init = np.maximum(0, scale * (1 - x_gr / length))
+    
     base_geometry = FlowlineGeometry(
         x_gr=x_gr,
         zb_gr=zb_gr,
         w_geom=w_geom,
         x_init=x_gr,
-        h_init=np.zeros_like(x_gr)  # Start with no ice for spinup
+        h_init=h_init  # Reasonable initial profile to avoid numerical issues
     )
     
     # --- Base Forcing ---
@@ -73,11 +76,13 @@ def main():
     }
     
     # --- Spinup Configuration ---
-    # Parameters here override base parameters for the spin-up stage only
+    # Use individual spinup mode - each mu value needs its own equilibrium
     spinup_config = {
+        'mode': 'individual',
         'enabled': True,
         'config': {
-            'tf': 500  # Run for 500 years to reach steady state
+            'tf': 500,  # Run for 500 years to reach steady state
+            'deltout': 1  # Always use deltout=1
         },
         'forcing': {
             'T0': 8.0,  # Use a stable climate for the spin-up
