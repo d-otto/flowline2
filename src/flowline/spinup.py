@@ -461,14 +461,14 @@ class FlowlineSpinup:
     def _setup_optimization_components(self):
         """Setup optimization components from target_matching configuration."""
         # Get cost function - must be a class or instance
-        cost_function_spec = self.target_matching.get('cost_function', LengthOnlyCost)
+        cost_function_spec = self.target_matching['cost_function']
         if isinstance(cost_function_spec, type):
             self.cost_function = cost_function_spec()
         else:
             self.cost_function = cost_function_spec
         
         # Get steady-state detector - must be a class or instance
-        detector_spec = self.target_matching.get('steady_state_detector', VolumeChangeRateDetector)
+        detector_spec = self.target_matching['steady_state_detector']
         if isinstance(detector_spec, type):
             self.steady_state_detector = detector_spec()
         else:

@@ -11,7 +11,7 @@ from pathlib import Path
 # Import flowline components
 from flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
 from flowline.geometry import FlowlineGeometry
-from flowline.spinup import FlowlineSpinup, LengthOnlyCost
+from flowline.spinup import FlowlineSpinup, LengthOnlyCost, VolumeChangeRateDetector
 import flowline.geometry as geometry_module
 
 
@@ -62,6 +62,7 @@ def main():
         },
         'adjustment_parameter': 'T0',        # Optimize temperature
         'cost_function': LengthOnlyCost,      # Simple length-only optimization
+        'steady_state_detector': VolumeChangeRateDetector,  # Required detector
         'tolerance': 0.1,                     # Accept +/- delx error TODO: is this in units of length of temperature?
         'parameter_bounds': (7.0, 9.0),    # Extended temperature range
         'max_iterations': 100,                 # Limit optimization steps
