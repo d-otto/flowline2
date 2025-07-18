@@ -1,5 +1,6 @@
 import logging
 import dill
+from typing import Optional, Tuple, Union, Any
 import numpy as np
 from scipy.interpolate import interp1d
 
@@ -15,7 +16,9 @@ class GeometryError(FlowlineModelError):
 class FlowlineGeometry:
     """Handles glacier geometry setup and interpolation"""
     
-    def __init__(self, x_gr, zb_gr, w_geom, x_init=None, h_init=None, profile=None, profile_avg_nyears=None):
+    def __init__(self, x_gr: np.ndarray, zb_gr: np.ndarray, w_geom: np.ndarray, 
+                 x_init: Optional[np.ndarray] = None, h_init: Optional[np.ndarray] = None, 
+                 profile: Optional[Union[str, Any]] = None, profile_avg_nyears: Optional[float] = None):
         self.x_gr = np.array(x_gr)
         self.zb_gr = np.array(zb_gr)
         self.w_geom = np.array(w_geom)
@@ -24,7 +27,7 @@ class FlowlineGeometry:
         self.profile = profile
         self.profile_avg_nyears = profile_avg_nyears
         
-    def setup_grid(self, delx):
+    def setup_grid(self, delx: float) -> None:
         """Create model grid and interpolate geometry"""
         xmx = np.max(delx * np.floor(self.x_gr / delx))
         self.x = np.arange(0, xmx, delx)
@@ -47,7 +50,7 @@ class FlowlineGeometry:
         if any(self.dzbdx[0:2] > 0):
             logging.warning('The slope of the bed at the top of the glacier is positive. This may cause instabilities.')
     
-    def load_initial_profile(self):
+    def load_initial_profile(self) -> Optional[Any]:
         """Load initial thickness profile, with optional averaging."""
         profile_source = None
         h0, x0 = None, None
@@ -98,14 +101,16 @@ class FlowlineGeometry:
         return profile_source
 
 
-def create_uniform_slope(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length):
+def create_uniform_slope(domain_extent: float, x_gr_points: int, elevation_drop: float, 
+                        width: float, bed_characteristic_length: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create uniform slope bed profile"""
     x_gr = np.linspace(0, domain_extent, int(x_gr_points))
     zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
     w_geom = np.full_like(x_gr, width)
     return x_gr, zb_gr, w_geom
 
-def create_concave_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation=-200):
+def create_concave_profile(domain_extent: float, x_gr_points: int, elevation_drop: float, 
+                          width: float, bed_characteristic_length: float, perturbation: float = -200) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create slightly concave bed profile"""
     x_gr = np.linspace(0, domain_extent, int(x_gr_points))
     # Base uniform slope
@@ -116,12 +121,14 @@ def create_concave_profile(domain_extent, x_gr_points, elevation_drop, width, be
     w_geom = np.full_like(x_gr, width)
     return x_gr, zb_gr, w_geom
 
-def create_convex_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation=200):
+def create_convex_profile(domain_extent: float, x_gr_points: int, elevation_drop: float, 
+                         width: float, bed_characteristic_length: float, perturbation: float = 200) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create slightly convex bed profile"""
     # Same as concave but with positive perturbation
     return create_concave_profile(domain_extent, x_gr_points, elevation_drop, width, bed_characteristic_length, perturbation)
 
-def create_variable_width(domain_extent, x_gr_points, elevation_drop, bed_characteristic_length, w_head=2000, w_term=500):
+def create_variable_width(domain_extent: float, x_gr_points: int, elevation_drop: float, 
+                         bed_characteristic_length: float, w_head: float = 2000, w_term: float = 500) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Create variable width profile"""
     x_gr = np.linspace(0, domain_extent, int(x_gr_points))
     zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
