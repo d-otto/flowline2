@@ -19,6 +19,7 @@ import numpy as np
 import dask
 from scipy.optimize import minimize_scalar, OptimizeResult
 from flowline.entrypoints import run_spinup_simulation
+from flowline.utils import objects_equal, object_hash
 
 
 # =============================================================================
@@ -862,9 +863,9 @@ class FlowlineSpinup:
             return False
         
         return (
-            self._objects_equal(self.config, other.config) and
-            self._objects_equal(self.geometry, other.geometry) and
-            self._objects_equal(self.forcing, other.forcing) and
+            objects_equal(self.config, other.config) and
+            objects_equal(self.geometry, other.geometry) and
+            objects_equal(self.forcing, other.forcing) and
             self.target_matching == other.target_matching
         )
     
@@ -873,24 +874,9 @@ class FlowlineSpinup:
         Make FlowlineSpinup hashable for use in dictionaries and sets.
         """
         return hash((
-            self._object_hash(self.config),
-            self._object_hash(self.geometry),
-            self._object_hash(self.forcing),
+            object_hash(self.config),
+            object_hash(self.geometry),
+            object_hash(self.forcing),
             str(sorted(self.target_matching.items())) if self.target_matching else ""
         ))
     
-    def _objects_equal(self, obj1, obj2):
-        """Check if two configuration objects are equal."""
-        if type(obj1) != type(obj2):
-            return False
-        
-        if hasattr(obj1, '__dict__') and hasattr(obj2, '__dict__'):
-            return obj1.__dict__ == obj2.__dict__
-        
-        return obj1 == obj2
-    
-    def _object_hash(self, obj):
-        """Generate hash for configuration objects."""
-        if hasattr(obj, '__dict__'):
-            return hash(str(sorted(obj.__dict__.items())))
-        return hash(str(obj))
