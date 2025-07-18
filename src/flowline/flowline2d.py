@@ -16,6 +16,7 @@ from functools import partial
 from dataclasses import dataclass, asdict
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Optional, List, Tuple, Dict, Any, Union
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -44,7 +45,7 @@ from .utils import FlowlineModelError, GeometryError, NumericalInstabilityError
 
 
 class flowline2d:
-    def __init__(self, config, geometry, forcing):
+    def __init__(self, config: FlowlineConfig, geometry: FlowlineGeometry, forcing: MassBalanceForcing):
         """2d flowline model with modular configuration
 
         Parameters
@@ -65,7 +66,7 @@ class flowline2d:
         # Setup model
         self._setup_model()
 
-    def _setup_model(self):
+    def _setup_model(self) -> None:
         """Setup model grid, geometry, and output arrays"""
         from pathlib import Path
         # Setup geometry and grid
@@ -290,7 +291,93 @@ class flowline2d:
                 pdd_values = np.where(np.isnan(pdd_values), 0.0, pdd_values)
                 pdd_values = np.maximum(pdd_values, 0.0)
                 self.pdd[idx_out, :] = pdd_values
+        
+        # Target matching optimization hook
+        if hasattr(self, 'target_matching') and self.target_matching:
+            self._check_optimization_progress(idx_out, t, h, b, edge_idx)
 
+    def _check_optimization_progress(self, idx_out, t, h, b, edge_idx):
+        """
+        Check optimization progress for target matching.
+        
+        This method is called from _save_output to monitor steady-state achievement
+        and calculate cost functions for optimization.
+        """
+        # Update monitoring history
+        current_time = t + self.config.ts
+        self.time_history.append(current_time)
+        
+        # Calculate volume (simple approximation)
+        volume = np.sum(h[:edge_idx] * self.w[:edge_idx]) * self.config.delx
+        self.volume_history.append(volume)
+        
+        # Store current length
+        current_length = edge_idx * self.config.delx
+        self.length_history.append(current_length)
+        
+        # Check if we should evaluate for steady state (based on response time)
+        if hasattr(self, 'last_evaluation_time'):
+            time_since_last_eval = current_time - self.last_evaluation_time
+            
+            # Calculate response time using current state
+            from flowline.spinup import calculate_response_time
+            # Find ELA (assumed to be where mass balance is zero)
+            ela_idx = np.argmin(np.abs(b)) if len(b) > 0 else 0
+            
+            try:
+                tau = calculate_response_time(h, b, self.config.delx, edge_idx, ela_idx)
+                # Only evaluate every tau years
+                if time_since_last_eval < tau:
+                    return
+            except ValueError:
+                # Glacier is completely melted - consider it immediately at steady state
+                # Skip the timing check and proceed directly to steady state evaluation
+                pass
+        else:
+            # First evaluation - set baseline
+            self.last_evaluation_time = current_time
+            return
+        
+        # Check for steady state
+        model_state = {
+            'time_history': self.time_history,
+            'volume_history': self.volume_history,
+            'length_history': self.length_history
+        }
+        
+        # Special case: completely melted glacier is considered at steady state
+        glacier_melted = edge_idx <= 0
+        
+        if glacier_melted or self.steady_state_detector(model_state):
+            if not self.steady_state_achieved:
+                print(f"Steady state achieved at t={current_time:.1f} years")
+                self.steady_state_achieved = True
+                
+                # Calculate final cost
+                final_model_state = {
+                    'edge': edge_idx,
+                    'delx': self.config.delx,
+                    'h': h,
+                    'volume': volume,
+                    'area': np.sum(self.w[:edge_idx]) * self.config.delx if edge_idx > 0 else 0.0
+                }
+                
+                self.optimization_cost = self.cost_function(final_model_state, self.optimization_targets)
+                
+                print(f"Final cost: {self.optimization_cost:.1f}")
+                
+                # Early termination if cost is acceptable
+                tolerance = self.target_matching.get('tolerance', 100)
+                # Square the tolerance since cost function now returns squared error
+                tolerance_squared = tolerance * tolerance
+                if self.optimization_cost <= tolerance_squared:
+                    # Report in terms of actual error (sqrt of cost)
+                    actual_error = np.sqrt(self.optimization_cost)
+                    print(f"Target achieved within tolerance ({tolerance}), actual error: {actual_error:.1f}")
+                    # We could implement early termination here if needed
+        
+        # Update last evaluation time
+        self.last_evaluation_time = current_time
 
     def to_pandas(self):
         d = dict(

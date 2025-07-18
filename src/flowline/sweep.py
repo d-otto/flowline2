@@ -7,23 +7,31 @@ from copy import deepcopy
 import itertools
 import traceback
 import math
+from typing import Dict, List, Any, Optional, Union, Tuple
 
 import dask
 import dask.delayed
+from dask.base import compute
 from dask.distributed import Client, LocalCluster
 from tqdm import tqdm
 import xarray as xr
 
 from flowline.entrypoints import run_flowline_simulation, run_spinup_simulation
 from flowline.visualization import plot_sweep_qc
+from flowline.spinup import FlowlineSpinup
 
 class FlowlineSweep:
     """
     Manages the configuration, execution, and result aggregation of a
     flowline model parameter sweep.
     """
-    def __init__(self, base_config, base_geometry, base_forcing, sweep_parameters, 
-                 spinup_config=None, output_dir=None, workers=None, no_combine=False, no_progress=False):
+    def __init__(self, base_config: Any, base_geometry: Any, base_forcing: Any, 
+                 sweep_parameters: Optional[Dict[str, List[Any]]] = None, 
+                 spinup_config: Optional[Dict[str, Any]] = None, 
+                 spinup_objects: Optional[Union[Any, Dict[str, Any]]] = None, 
+                 experimental_perturbations: Optional[Dict[str, Dict[str, Any]]] = None, 
+                 output_dir: Optional[Union[str, Path]] = None, 
+                 workers: Optional[int] = None, no_combine: bool = False, no_progress: bool = False):
         """
         Initializes the sweep.
 
@@ -35,25 +43,22 @@ class FlowlineSweep:
             Base geometry object for all runs.
         base_forcing : MassBalanceForcing
             Base forcing object for all runs.
-        sweep_parameters : dict
+        sweep_parameters : dict, optional
             Dictionary mapping parameter names to lists of values to sweep over.
             Parameter names should be in the format 'object.attribute' (e.g., 'config.tf', 'forcing.T0').
         spinup_config : dict, optional
-            Spinup configuration with mode-based control. Format:
-            {
-                'mode': 'shared|individual|per_run_custom|from_file',
-                'enabled': True,
-                'config': {...},    # Config overrides (tf, delt, etc.)
-                'forcing': {...},   # REQUIRED: Explicit forcing parameters
-                'geometry': {...},  # Geometry overrides (optional)
-                'profile_path': '...',  # For 'from_file' mode
-                'customizations': [     # For 'per_run_custom' mode
-                    {'run_ids': ['run_0001', 'run_0002'], 'forcing': {'T0': 8.0}},
-                    {'run_ids': ['run_0003'], 'forcing': {'T0': 9.0}}
-                ]
-            }
-            NOTE: Explicit forcing parameters are always required in 'forcing' 
-            to ensure compatibility with spinup timespan and configuration.
+            Legacy spinup configuration with mode-based control. See documentation
+            for detailed format. Cannot be used together with spinup_objects.
+        spinup_objects : FlowlineSpinup or dict, optional  
+            FlowlineSpinup object(s) for new 4-object architecture. Can be:
+            - Single FlowlineSpinup object: used for all runs
+            - Dict mapping run_id -> FlowlineSpinup object: specific spinup per run
+            Example: spinup_obj or {'run_0001': spinup_obj1, 'run_0002': spinup_obj2}
+            Cannot be used together with spinup_config.
+        experimental_perturbations : dict, optional
+            Mapping of run_id -> perturbations dict for applying experimental changes after spinup.
+            Perturbations use lambda functions for relative changes:
+            Example: {'run_0001': {'forcing.T0': lambda T0: T0 + 1.0, 'config.tf': lambda _: 200}}
         output_dir : str or Path, optional
             Directory to save sweep results. If None, a timestamped directory
             is created.
@@ -69,6 +74,14 @@ class FlowlineSweep:
         self.base_forcing = base_forcing
         self.sweep_parameters = sweep_parameters
         self.spinup_config = spinup_config or {}
+        self.spinup_objects = spinup_objects
+        self.experimental_perturbations = experimental_perturbations or {}
+        
+        # Validation: cannot use both spinup approaches
+        if self.spinup_config and self.spinup_objects:
+            raise ValueError("Cannot specify both spinup_config and spinup_objects. "
+                           "Use spinup_config for legacy mode-based control or "
+                           "spinup_objects for the new 4-object architecture.")
         
         if output_dir is None:
             output_dir = f"sweep_output_{int(time.time())}"
@@ -78,8 +91,21 @@ class FlowlineSweep:
         self.no_progress = no_progress
 
 
-    def _generate_run_objects(self):
-        """Generate individual run objects from sweep parameters."""
+    def _generate_run_objects(self) -> List[Tuple[Any, Any, Any]]:
+        """Generate individual run objects from sweep parameters or spinup_objects."""
+        
+        # If using spinup_objects with no sweep_parameters, infer runs from spinup_objects
+        if self.spinup_objects and not self.sweep_parameters:
+            if isinstance(self.spinup_objects, dict):
+                # Dict format: create one run per spinup object
+                run_count = len(self.spinup_objects)
+            else:
+                # Single spinup object: need to determine run count from experimental_perturbations
+                run_count = len(self.experimental_perturbations) if self.experimental_perturbations else 1
+            
+            return [(self.base_config, self.base_geometry, self.base_forcing)] * run_count
+        
+        # Traditional sweep parameter logic
         if not self.sweep_parameters:
             return [(self.base_config, self.base_geometry, self.base_forcing)]
 
@@ -115,9 +141,15 @@ class FlowlineSweep:
 
     def _orchestrate_spinups(self, run_objects_list, client):
         """
-        Orchestrate spinup runs based on spinup_config mode.
-        Returns a mapping of run_id -> profile_path.
+        Orchestrate spinup runs based on spinup_config mode or spinup_objects.
+        Returns a mapping of run_id -> profile_path for legacy mode,
+        or run_id -> {'profile': path, 'config': obj, 'geometry': obj, 'forcing': obj} for new mode.
         """
+        # Handle new spinup_objects approach
+        if self.spinup_objects:
+            return self._handle_spinup_objects(run_objects_list, client)
+        
+        # Handle legacy spinup_config approach
         if not self.spinup_config or not self.spinup_config.get('enabled', False):
             print("No spinup configuration - skipping spinup phase.")
             return {}
@@ -163,7 +195,7 @@ class FlowlineSweep:
         # Use base objects for shared spinup
         spinup_config = self._create_spinup_config(self.base_config)
         spinup_geometry = self._create_spinup_geometry(self.base_geometry)
-        spinup_forcing = self._create_spinup_forcing(self.base_forcing, spinup_config=spinup_config)
+        spinup_forcing = self._get_spinup_forcing()
         
         # Run single spinup
         spinup_task = dask.delayed(run_spinup_simulation)(
@@ -172,7 +204,7 @@ class FlowlineSweep:
         )
         
         print("Executing shared spinup...")
-        spinup_result = dask.compute(spinup_task)[0]
+        spinup_result = compute(spinup_task)[0]
         
         if str(spinup_result).startswith("ERROR"):
             raise RuntimeError(f"Shared spinup failed: {spinup_result}")
@@ -217,7 +249,7 @@ class FlowlineSweep:
                 # Create customized spinup objects
                 spinup_config = self._create_spinup_config(config, custom_params.get('config', {}))
                 spinup_geometry = self._create_spinup_geometry(geometry, custom_params.get('geometry', {}))
-                spinup_forcing = self._create_spinup_forcing(forcing, custom_params, spinup_config=spinup_config)
+                spinup_forcing = self._get_spinup_forcing()  # TODO: Custom spinup mode needs rework for per-run forcing
                 
                 spinup_task = dask.delayed(run_spinup_simulation)(
                     (f"custom_{custom_hash}", spinup_config, spinup_geometry, spinup_forcing,
@@ -233,10 +265,10 @@ class FlowlineSweep:
         print(f"Executing {len(spinup_tasks)} unique spinup configurations...")
         
         if self.no_progress:
-            spinup_results = dask.compute(spinup_tasks)[0]
+            spinup_results = compute(spinup_tasks)[0]
         else:
             with tqdm(total=len(spinup_tasks), desc="Spinup runs", ncols=100) as pbar:
-                spinup_results = dask.compute(spinup_tasks)[0]
+                spinup_results = compute(spinup_tasks)[0]
                 for _ in spinup_results:
                     pbar.update(1)
         
@@ -267,7 +299,7 @@ class FlowlineSweep:
             # Create customized spinup objects for this run
             spinup_config = self._create_spinup_config(config)
             spinup_geometry = self._create_spinup_geometry(geometry)
-            spinup_forcing = self._create_spinup_forcing(forcing, spinup_config=spinup_config)
+            spinup_forcing = self._get_spinup_forcing()
             
             spinup_task = dask.delayed(run_spinup_simulation)(
                 (run_id, spinup_config, spinup_geometry, spinup_forcing,
@@ -279,10 +311,10 @@ class FlowlineSweep:
         print(f"Executing {len(spinup_tasks)} individual spinups...")
         
         if self.no_progress:
-            spinup_results = dask.compute(spinup_tasks)[0]
+            spinup_results = compute(spinup_tasks)[0]
         else:
             with tqdm(total=len(spinup_tasks), desc="Individual spinups", ncols=100) as pbar:
-                spinup_results = dask.compute(spinup_tasks)[0]
+                spinup_results = compute(spinup_tasks)[0]
                 for _ in spinup_results:
                     pbar.update(1)
         
@@ -297,14 +329,140 @@ class FlowlineSweep:
         print(f"Individual spinups completed. {len(run_profile_mapping)} profiles created.")
         return run_profile_mapping
 
+    def _handle_spinup_objects(self, run_objects_list, client):
+        """Handle FlowlineSpinup objects for the new 4-object architecture."""
+        print("Executing FlowlineSpinup objects...")
+        
+        # Convert single spinup object to dict format if needed
+        if isinstance(self.spinup_objects, dict):
+            spinup_mapping = self.spinup_objects
+        else:
+            # Single spinup object: create mapping for all runs
+            spinup_mapping = {}
+            for i in range(len(run_objects_list)):
+                run_id = self._get_run_id(i)
+                spinup_mapping[run_id] = self.spinup_objects
+        
+        # Create Dask tasks for each unique FlowlineSpinup object
+        unique_spinups = {}  # FlowlineSpinup object -> run_ids that use it
+        spinup_tasks = {}    # FlowlineSpinup object -> Dask task
+        
+        # Group run_ids by their FlowlineSpinup object (allow sharing)
+        for run_id, spinup_obj in spinup_mapping.items():
+            if spinup_obj not in unique_spinups:
+                unique_spinups[spinup_obj] = []
+            unique_spinups[spinup_obj].append(run_id)
+        
+        # Create Dask tasks for each unique spinup
+        for spinup_obj in unique_spinups.keys():
+            # Use the first run_id for this spinup as the identifier
+            first_run_id = unique_spinups[spinup_obj][0]
+            task = dask.delayed(spinup_obj.generate_profile)(
+                self.output_dir, first_run_id, self.no_progress
+            )
+            spinup_tasks[spinup_obj] = task
+        
+        # Execute all unique spinup tasks in parallel
+        print(f"Executing {len(spinup_tasks)} unique spinup configurations...")
+        task_list = list(spinup_tasks.values())
+        
+        if self.no_progress:
+            spinup_results = compute(task_list)[0]
+        else:
+            with tqdm(total=len(task_list), desc="FlowlineSpinup runs", ncols=100) as pbar:
+                spinup_results = compute(task_list)[0]
+                for _ in spinup_results:
+                    pbar.update(1)
+        
+        # Map results back to spinup objects
+        spinup_obj_results = {}
+        for i, spinup_obj in enumerate(spinup_tasks.keys()):
+            result = spinup_results[i]
+            profile_path = result
+            if str(profile_path).startswith("ERROR"):
+                raise RuntimeError(f"FlowlineSpinup failed: {profile_path}")
+            
+            spinup_obj_results[spinup_obj] = profile_path
+        
+        # Build final run_id -> profile path mapping
+        run_spinup_mapping = {}
+        for spinup_obj, run_ids in unique_spinups.items():
+            profile_path = spinup_obj_results[spinup_obj]
+            for run_id in run_ids:
+                run_spinup_mapping[run_id] = profile_path
+        
+        print(f"FlowlineSpinup objects completed. {len(run_spinup_mapping)} runs configured.")
+        return run_spinup_mapping
+
+    def _apply_experimental_perturbations(self, run_id, config, geometry, forcing):
+        """
+        Apply experimental perturbations using lambda functions for relative changes.
+        
+        Parameters
+        ----------
+        run_id : str
+            Run identifier
+        config : FlowlineConfig
+            Configuration object to perturb
+        geometry : FlowlineGeometry
+            Geometry object to perturb
+        forcing : MassBalanceForcing
+            Forcing object to perturb
+            
+        Returns
+        -------
+        tuple
+            (perturbed_config, perturbed_geometry, perturbed_forcing)
+        """
+        perturbations = self.experimental_perturbations[run_id]
+        
+        # Create copies to avoid modifying originals
+        perturbed_config = deepcopy(config)
+        perturbed_geometry = deepcopy(geometry)
+        perturbed_forcing = deepcopy(forcing)
+        
+        for param_path, perturbation_func in perturbations.items():
+            parts = param_path.split('.')
+            
+            if parts[0] == 'config':
+                param_name = parts[1]
+                if hasattr(perturbed_config, param_name):
+                    current_value = getattr(perturbed_config, param_name)
+                    new_value = perturbation_func(current_value)
+                    setattr(perturbed_config, param_name, new_value)
+                    print(f"Applied experimental perturbation {run_id}: {param_path} {current_value} -> {new_value}")
+            
+            elif parts[0] == 'geometry':
+                param_name = parts[1]
+                if hasattr(perturbed_geometry, param_name):
+                    current_value = getattr(perturbed_geometry, param_name)
+                    new_value = perturbation_func(current_value)
+                    setattr(perturbed_geometry, param_name, new_value)
+                    print(f"Applied experimental perturbation {run_id}: {param_path} {current_value} -> {new_value}")
+            
+            elif parts[0] == 'forcing':
+                param_name = parts[1]
+                if hasattr(perturbed_forcing, param_name):
+                    current_value = getattr(perturbed_forcing, param_name)
+                    new_value = perturbation_func(current_value)
+                    setattr(perturbed_forcing, param_name, new_value)
+                    print(f"Applied experimental perturbation {run_id}: {param_path} {current_value} -> {new_value}")
+        
+        return perturbed_config, perturbed_geometry, perturbed_forcing
+
     def _create_spinup_config(self, base_config, custom_overrides=None):
         """Create spinup config by applying base spinup config and custom overrides."""
-        spinup_config = deepcopy(base_config)
-        
-        # Apply base spinup config overrides
-        base_overrides = self.spinup_config.get('config', {})
-        for key, value in base_overrides.items():
-            setattr(spinup_config, key, value)
+        # Check if spinup_config['config'] is a FlowlineConfig object
+        base_spinup_config = self.spinup_config.get('config')
+        if hasattr(base_spinup_config, '__dict__'):
+            # It's a FlowlineConfig object, use it as base
+            spinup_config = deepcopy(base_spinup_config)
+        else:
+            # Legacy dictionary format, create from base_config
+            spinup_config = deepcopy(base_config)
+            if base_spinup_config:
+                for key, value in base_spinup_config.items():
+                    setattr(spinup_config, key, value)
         
         # Apply custom overrides if provided
         if custom_overrides:
@@ -333,51 +491,39 @@ class FlowlineSweep:
         
         return spinup_geometry
 
-    def _create_spinup_forcing(self, base_forcing, custom_overrides=None, spinup_config=None):
-        """Create spinup forcing by applying base spinup config and custom overrides."""
-        from flowline.flowline2d import TemperaturePrecipitationForcing, DirectMassBalanceForcing
+    def _get_spinup_forcing(self):
+        """Get spinup forcing object from spinup_config."""
+        spinup_forcing = self.spinup_config.get('forcing')
         
-        # Get all overrides (base + custom)
-        base_overrides = self.spinup_config.get('forcing', {})
-        all_overrides = base_overrides.copy()
-        if custom_overrides:
-            all_overrides.update(custom_overrides)
+        # Check if it's a FlowlineForcing object
+        if hasattr(spinup_forcing, '__dict__') and hasattr(spinup_forcing, 'get_mass_balance'):
+            # It's already a FlowlineForcing object, return a copy
+            return deepcopy(spinup_forcing)
         
-        # Always require explicit spinup forcing
-        if not all_overrides:
+        # Legacy dictionary format - raise informative error
+        if isinstance(spinup_forcing, dict):
             raise ValueError(
-                "Explicit spinup forcing parameters are required in spinup_config['forcing']. "
-                "This ensures spinup forcing is compatible with your spinup timespan and configuration.\n"
+                "Spinup forcing must be a FlowlineForcing object, not a dictionary.\n"
+                "Please update your spinup_config to use forcing objects:\n"
+                "Example:\n"
+                "  spinup_config = {\n"
+                "    'mode': 'shared',\n"
+                "    'enabled': True,\n"
+                "    'config': FlowlineConfig(tf=500, deltout=1, ...),\n"
+                "    'forcing': TemperaturePrecipitationForcing(T0=8.0, P0=2.0, tf=500, ...)\n"
+                "  }"
+            )
+        
+        # No forcing specified
+        if spinup_forcing is None:
+            raise ValueError(
+                "Explicit spinup forcing object is required in spinup_config['forcing'].\n"
                 "Example: spinup_config = {\n"
-                "    'config': {'tf': 500},\n"
-                "    'forcing': {'T0': 8.0, 'P0': 2.0}  # Constant forcing for spinup\n"
+                "  'forcing': TemperaturePrecipitationForcing(T0=8.0, P0=2.0, tf=500, ...)\n"
                 "}"
             )
         
-        # Check if we have a spinup config with timing info for forcing creation
-        if spinup_config and hasattr(spinup_config, 'tf'):
-            # For TemperaturePrecipitationForcing, create new instance with proper timespan
-            if isinstance(base_forcing, TemperaturePrecipitationForcing):
-                forcing_params = {
-                    'T0': all_overrides.get('T0', 8.0),
-                    'P0': all_overrides.get('P0', 2.0),
-                    'gamma': all_overrides.get('gamma', 6.5e-3),
-                    'mu': all_overrides.get('mu', 0.65),
-                    'tf': spinup_config.tf
-                }
-                # Include any other forcing parameters from overrides
-                for key, value in all_overrides.items():
-                    if key not in forcing_params:
-                        forcing_params[key] = value
-                
-                return TemperaturePrecipitationForcing(**forcing_params)
-        
-        # For other cases, copy base forcing and apply overrides
-        spinup_forcing = deepcopy(base_forcing)
-        for key, value in all_overrides.items():
-            setattr(spinup_forcing, key, value)
-        
-        return spinup_forcing
+        return deepcopy(spinup_forcing)
 
     def _get_git_revision_hash(self):
         """Get the current git commit hash."""
@@ -427,18 +573,38 @@ class FlowlineSweep:
             return
 
         print("Combining results into a single NetCDF file...")
-        sweep_dims = list(self.sweep_parameters.keys()) if self.sweep_parameters else []
+        
+        # Determine sweep dimensions from either sweep_parameters or spinup_objects
+        if self.sweep_parameters:
+            sweep_dims = list(self.sweep_parameters.keys())
+        elif self.spinup_objects and isinstance(self.spinup_objects, dict):
+            # For spinup_objects dict, create a run dimension
+            sweep_dims = ['run_id']
+        else:
+            sweep_dims = []
         
         def preprocess_ds(ds):
             params = json.loads(ds.attrs['run_parameters'])
             coords = {}
             for dim_key in sweep_dims:
-                keys = dim_key.split('.')
-                val = params
-                for k in keys:
-                    val = val[k]
-                coord_name = dim_key.replace('.', '_')
-                coords[coord_name] = val
+                if dim_key == 'run_id':
+                    # Special handling for run_id dimension - read from separate attribute
+                    coords['run_id'] = ds.attrs.get('run_id', 'unknown')
+                else:
+                    # Traditional sweep parameter handling
+                    keys = dim_key.split('.')
+                    val = params
+                    for k in keys:
+                        val = val[k]
+                    coord_name = dim_key.replace('.', '_')
+                    coords[coord_name] = val
+            
+            # Store the run_parameters as a data variable to preserve per-run parameters
+            if 'run_id' in coords:
+                run_id = coords['run_id']
+                # Create a scalar data variable for this run's parameters
+                import xarray as xr
+                ds = ds.assign({f'run_parameters_{run_id}': xr.DataArray(ds.attrs['run_parameters'], dims=())})
             
             new_dims = list(coords.keys())
             if new_dims:
@@ -454,8 +620,15 @@ class FlowlineSweep:
 
                 # For nested combine, xarray expects a nested list of files that
                 # matches the structure of the swept dimensions.
-                sweep_value_lists = [self.sweep_parameters[key] for key in sweep_dims]
-                shape = [len(v) for v in sweep_value_lists]
+                if self.sweep_parameters:
+                    # Traditional sweep parameters
+                    sweep_value_lists = [self.sweep_parameters[key] for key in sweep_dims]
+                    shape = [len(v) for v in sweep_value_lists]
+                elif 'run_id' in sweep_dims:
+                    # spinup_objects dict - simple 1D concatenation along run_id
+                    shape = [len(sorted_runs)]
+                else:
+                    shape = []
 
                 def _nest_list(flat_list, shape_dims):
                     """Recursively nest a flat list to a given shape."""
@@ -478,12 +651,21 @@ class FlowlineSweep:
                               "produce incorrect dimensions or fail if sweep dimensions are not orthogonal.")
                     runs_for_xr = sorted_runs
 
-                combined_ds = xr.open_mfdataset(
-                    runs_for_xr,
-                    preprocess=preprocess_ds,
-                    combine='nested',
-                    concat_dim=concat_dims
-                )
+                if 'run_id' in sweep_dims:
+                    # Simple case: 1D concatenation along run_id
+                    combined_ds = xr.open_mfdataset(
+                        sorted_runs,
+                        preprocess=preprocess_ds,
+                        combine='by_coords'
+                    )
+                else:
+                    # Traditional nested combine for multi-dimensional sweeps
+                    combined_ds = xr.open_mfdataset(
+                        runs_for_xr,
+                        preprocess=preprocess_ds,
+                        combine='nested',
+                        concat_dim=concat_dims
+                    )
             else: # Single run, no sweep
                 ds = xr.open_dataset(successful_runs[0])
                 combined_ds = preprocess_ds(ds)
@@ -520,12 +702,48 @@ class FlowlineSweep:
         for i, (config, geometry, forcing) in enumerate(run_objects_list):
             run_id = self._get_run_id(i)
             
-            # Apply assigned spinup profile to geometry
-            if run_id in run_profile_mapping:
-                geometry = deepcopy(geometry)  # Don't modify original
-                geometry.profile = run_profile_mapping[run_id]
-                if hasattr(geometry, 'h_init'):
-                    geometry.h_init = None
+            # If using spinup_objects, inherit ALL parameters from spinup object
+            if isinstance(self.spinup_objects, dict) and run_id in self.spinup_objects:
+                spinup_obj = self.spinup_objects[run_id]
+                # Use ALL objects from spinup: config, geometry, forcing
+                config = deepcopy(spinup_obj.config)
+                geometry = deepcopy(spinup_obj.geometry)
+                forcing = deepcopy(spinup_obj.forcing)
+                
+                # Apply spinup profile to geometry
+                if run_id in run_profile_mapping:
+                    geometry.profile = run_profile_mapping[run_id]
+                    if hasattr(geometry, 'h_init'):
+                        geometry.h_init = None
+                        
+            elif self.spinup_objects and not isinstance(self.spinup_objects, dict):
+                # Single spinup object case - inherit everything
+                config = deepcopy(self.spinup_objects.config)
+                geometry = deepcopy(self.spinup_objects.geometry)
+                forcing = deepcopy(self.spinup_objects.forcing)
+                
+                # Apply spinup profile to geometry
+                if run_id in run_profile_mapping:
+                    geometry.profile = run_profile_mapping[run_id]
+                    if hasattr(geometry, 'h_init'):
+                        geometry.h_init = None
+                        
+            else:
+                # Legacy path: only handle profile
+                if run_id in run_profile_mapping:
+                    profile_path = run_profile_mapping[run_id]
+                    
+                    # Apply spinup profile to geometry
+                    geometry = deepcopy(geometry)
+                    geometry.profile = profile_path
+                    if hasattr(geometry, 'h_init'):
+                        geometry.h_init = None
+            
+            # Apply experimental perturbations if specified
+            if run_id in self.experimental_perturbations:
+                config, geometry, forcing = self._apply_experimental_perturbations(
+                    run_id, config, geometry, forcing
+                )
             
             task = dask.delayed(run_flowline_simulation)((run_id, config, geometry, forcing, 
                                                           self.output_dir, self.no_progress))
@@ -534,12 +752,12 @@ class FlowlineSweep:
         print("Executing experimental runs...")
         results = []
         if self.no_progress:
-            futures = dask.compute(exp_tasks)[0]
+            futures = compute(exp_tasks)[0]
             for future in futures:
                 results.append(future)
         else:
             with tqdm(total=len(exp_tasks), desc="Experimental runs", ncols=100) as pbar:
-                futures = dask.compute(exp_tasks)[0]
+                futures = compute(exp_tasks)[0]
                 for future in futures:
                     results.append(future)
                     pbar.update(1)

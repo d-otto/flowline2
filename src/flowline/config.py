@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 import numpy as np
 
 @dataclass
@@ -23,7 +24,7 @@ class FlowlineConfig:
     deltout: float = 1         # Frequency to save output
     dt_plot: int = 100         # Plotting interval yr
     rt_plot: bool = False      # Real time plotting
-    xlim0: float = None        # Left limit for plots
+    xlim0: Optional[float] = None        # Left limit for plots
     
     # Climate parameters
     gamma: float = 6.5e-3      # Temperature lapse rate degC/km

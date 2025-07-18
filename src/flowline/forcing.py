@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
+from typing import Dict, Tuple, Union, Optional, Callable, Any
 import numpy as np
 import scipy as sci
 import numba as nb
 
 @nb.njit
-def calc_pdd(T, Tamp, days=365):
+def calc_pdd(T: np.ndarray, Tamp: float, days: int = 365) -> np.ndarray:
     """
     Calculate Positive Degree Days from temperature data.
     
@@ -41,7 +42,8 @@ def calc_pdd(T, Tamp, days=365):
     return pdd * days
 
 
-def calc_b(z, P0, T0, gamma, mu, Tamp, days=365, return_pdd=False):
+def calc_b(z: Union[float, np.ndarray], P0: float, T0: float, gamma: float, mu: float, 
+           Tamp: float, days: int = 365, return_pdd: bool = False) -> Union[float, np.ndarray, Tuple[Union[float, np.ndarray], np.ndarray]]:
     """
     Calculate mass balance at elevation z.
     
@@ -108,12 +110,12 @@ class MassBalanceForcing(ABC):
     """Base class for mass balance forcing"""
     
     @abstractmethod
-    def get_mass_balance(self, x, h_eff, year_idx):
+    def get_mass_balance(self, x: np.ndarray, h_eff: np.ndarray, year_idx: int) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Calculate mass balance for given conditions"""
         pass
     
     @abstractmethod
-    def get_climate_vars(self, year_idx):
+    def get_climate_vars(self, year_idx: int) -> Dict[str, Any]:
         """Get climate variables for output"""
         pass
 
@@ -121,9 +123,12 @@ class MassBalanceForcing(ABC):
 class TemperaturePrecipitationForcing(MassBalanceForcing):
     """Temperature-precipitation based mass balance forcing"""
     
-    def __init__(self, T0, P0, ts=0, tf=None, sigT=1, sigP=1, T=None, P=None, temp=None,
-                 t_stab=None, mu=0.65, gamma=6.5e-3, dpdz=None, T2melt=None,
-                 pdd_Tamp=None, pdd_beta=None):
+    def __init__(self, T0: float, P0: float, ts: float = 0, tf: Optional[float] = None, 
+                 sigT: float = 1, sigP: float = 1, T: Optional[np.ndarray] = None, 
+                 P: Optional[np.ndarray] = None, temp: Optional[np.ndarray] = None,
+                 t_stab: Optional[int] = None, mu: float = 0.65, gamma: float = 6.5e-3, 
+                 dpdz: Optional[np.ndarray] = None, T2melt: Optional[Union[str, Callable]] = None,
+                 pdd_Tamp: Optional[float] = None, pdd_beta: Optional[float] = None):
         self.T0 = T0
         self.P0 = P0
         self.sigT = sigT
@@ -180,7 +185,7 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
             self.Pp[:t_stab] = 0
             self.temp[:t_stab] = 0
     
-    def get_mass_balance(self, x, h_eff, year_idx):
+    def get_mass_balance(self, x: np.ndarray, h_eff: np.ndarray, year_idx: int) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Calculate mass balance from temperature and precipitation"""
         # Clip year_idx to prevent index out of bounds on the last step
         year_idx = min(year_idx, len(self.Pp) - 1)
@@ -200,7 +205,7 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
         
         return accumulation - melt, {'accumulation': accumulation, 'melt': melt, 'T': T_wk, 'pdd': pdd}
     
-    def get_climate_vars(self, year_idx):
+    def get_climate_vars(self, year_idx: int) -> Dict[str, Any]:
         """Get climate variables for output"""
         return {
             'T': self.T0 + self.Tp[year_idx] + self.temp[year_idx]
@@ -210,7 +215,8 @@ class TemperaturePrecipitationForcing(MassBalanceForcing):
 class DirectMassBalanceForcing(MassBalanceForcing):
     """Direct mass balance forcing with optional spatial gradients and temporal anomalies"""
     
-    def __init__(self, b0=0, bp=None, dbdz=None, dbdx=None):
+    def __init__(self, b0: Union[float, np.ndarray] = 0, bp: Optional[Union[float, np.ndarray]] = None, 
+                 dbdz: Optional[np.ndarray] = None, dbdx: Optional[np.ndarray] = None):
         """
         Initialize direct mass balance forcing
         
@@ -242,7 +248,7 @@ class DirectMassBalanceForcing(MassBalanceForcing):
         else:
             self.bp = np.array(bp)  # Time series
     
-    def get_mass_balance(self, x, h_eff, year_idx):
+    def get_mass_balance(self, x: np.ndarray, h_eff: np.ndarray, year_idx: int) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Calculate mass balance directly"""
         # Start with base mass balance
         if np.isscalar(self.b0):
@@ -278,7 +284,7 @@ class DirectMassBalanceForcing(MassBalanceForcing):
         
         return b, {'b_anomaly': bp_val, 'accumulation': accumulation, 'melt': melt}
     
-    def get_climate_vars(self, year_idx):
+    def get_climate_vars(self, year_idx: int) -> Dict[str, Any]:
         """Get climate variables for output"""
         return {}
 
