@@ -17,6 +17,22 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from flowline.entrypoints import run_spinup_simulation
 from flowline.utils import objects_equal, object_hash
+from tqdm import tqdm
+
+
+# =============================================================================
+# TQDM-SAFE PRINTING UTILITIES
+# =============================================================================
+
+def safe_print(message, use_tqdm=True):
+    """Print message in a way that's compatible with tqdm progress bars."""
+    if use_tqdm:
+        try:
+            tqdm.write(message)
+        except Exception:
+            print(message)
+    else:
+        print(message)
 
 
 # =============================================================================
@@ -281,7 +297,7 @@ class VolumeChangeRateDetector(SteadyStateDetector):
         
         # Debug output
         if len(time_history) % 50 == 0:  # Print every 50 steps
-            print(f"  Steady state check: t={time_history[-1]:.1f}, mean_dV_dt={mean_dV_dt:.2e}, threshold={self.threshold:.2e}")
+            safe_print(f"  Steady state check: t={time_history[-1]:.1f}, mean_dV_dt={mean_dV_dt:.2e}, threshold={self.threshold:.2e}")
         
         return bool(mean_dV_dt < self.threshold)
 
@@ -457,7 +473,7 @@ class FlowlineSpinup:
         if self.target_matching:
             # Use optimization-based target matching
             optimized_param = self._optimize_target_matching(output_dir, spinup_id, no_progress)
-            print(f"Target matching optimization completed. Optimal {self.target_matching['adjustment_parameter']} = {optimized_param:.3f}")
+            safe_print(f"Target matching optimization completed. Optimal {self.target_matching['adjustment_parameter']} = {optimized_param:.3f}")
         
         # Run final spinup with optimized parameters
         profile_path = self._run_steady_state_spinup(output_dir, spinup_id, no_progress)
@@ -512,7 +528,7 @@ class FlowlineSpinup:
                 final_length = state.get('final_length', 0)
                 final_edge_idx = state.get('final_edge_idx', 0)
                 steady_state_time = state.get('steady_state_time', 'N/A')
-                print(f"  -> Final length: {final_length:.1f}m (edge_idx={final_edge_idx}), steady state at: {steady_state_time}")
+                safe_print(f"  -> Final length: {final_length:.1f}m (edge_idx={final_edge_idx}), steady state at: {steady_state_time}")
                 
                 # Store in optimization history
                 self._optimization_history['params'].append(param_value)
@@ -520,7 +536,7 @@ class FlowlineSpinup:
                 self._optimization_history['lengths'].append(final_length)
                 self._optimization_history['states'].append(state)
             else:
-                print("  -> No optimization state available")
+                safe_print("  -> No optimization state available")
                 self._optimization_history['params'].append(param_value)
                 self._optimization_history['costs'].append(cost)
                 self._optimization_history['lengths'].append(0)
@@ -539,7 +555,7 @@ class FlowlineSpinup:
         )
         
         if not result.success:
-            print(f"Warning: Optimization did not converge. Using best result: {result.x:.3f}")
+            safe_print(f"Warning: Optimization did not converge. Using best result: {result.x:.3f}")
         
         # Set the optimal parameter value
         optimal_param = result.x
@@ -751,7 +767,7 @@ class FlowlineSpinup:
                 
                 # Check for steady state
                 if self._check_steady_state_and_cost(model, t, h, b, edge_idx):
-                    print(f"*** EARLY TERMINATION *** Steady state achieved, terminating at t={t:.1f} years")
+                    safe_print(f"*** EARLY TERMINATION *** Steady state achieved, terminating at t={t:.1f} years")
                     break
                 
                 idx_out += 1
@@ -818,9 +834,9 @@ class FlowlineSpinup:
                     'final_volume': volume
                 }
                 
-                print(f"Steady state achieved at t={current_time:.1f} years")
-                print(f"Final glacier length: {final_length:.1f}m (target: {self.target_matching['targets']['target_length']}m)")
-                print(f"Final cost: {model.optimization_cost:.1f}")
+                safe_print(f"Steady state achieved at t={current_time:.1f} years")
+                safe_print(f"Final glacier length: {final_length:.1f}m (target: {self.target_matching['targets']['target_length']}m)")
+                safe_print(f"Final cost: {model.optimization_cost:.1f}")
                 
                 return True  # Steady state achieved
         
