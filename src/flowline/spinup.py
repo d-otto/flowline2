@@ -527,9 +527,10 @@ class FlowlineSpinup:
             return cost
         
         # Run optimization
+        bounds = self.target_matching['parameter_bounds']
         result = minimize_scalar(
             objective_function,
-            bounds=self.optimization_bounds,
+            bounds=bounds,
             tol=tolerance,
             method='bounded',
             options={'maxiter': max_iterations, 'disp':True}
