@@ -405,90 +405,6 @@ def length_change_guess(geometry, forcing, mass_balance_change, **kwargs):
     return abs(length_change)
 
 
-# =============================================================================
-# UTILITY FUNCTIONS FOR COST FUNCTION REGISTRATION
-# =============================================================================
-
-# Registry for built-in cost functions
-COST_FUNCTION_REGISTRY = {
-    'length_only': LengthOnlyCost,
-    'length_and_average_thickness': LengthAndAverageThicknessCost,
-}
-
-# Registry for built-in steady-state detectors
-STEADY_STATE_DETECTOR_REGISTRY = {
-    'volume_change_rate': VolumeChangeRateDetector,
-}
-
-
-def get_cost_function(cost_function_spec):
-    """
-    Get cost function from specification.
-    
-    Parameters
-    ----------
-    cost_function_spec : str, dict, or callable
-        Cost function specification:
-        - str: Name of built-in cost function
-        - dict: {'name': str, 'params': dict} for parameterized built-in
-        - callable: Custom cost function
-        
-    Returns
-    -------
-    CostFunction
-        Configured cost function instance
-    """
-    if callable(cost_function_spec):
-        return cost_function_spec
-    elif isinstance(cost_function_spec, str):
-        if cost_function_spec in COST_FUNCTION_REGISTRY:
-            return COST_FUNCTION_REGISTRY[cost_function_spec]()
-        else:
-            raise ValueError(f"Unknown cost function: {cost_function_spec}")
-    elif isinstance(cost_function_spec, dict):
-        name = cost_function_spec['name']
-        params = cost_function_spec.get('params', {})
-        if name in COST_FUNCTION_REGISTRY:
-            return COST_FUNCTION_REGISTRY[name](**params)
-        else:
-            raise ValueError(f"Unknown cost function: {name}")
-    else:
-        raise ValueError(f"Invalid cost function specification: {cost_function_spec}")
-
-
-def get_steady_state_detector(detector_spec):
-    """
-    Get steady-state detector from specification.
-    
-    Parameters
-    ----------
-    detector_spec : str, dict, or callable
-        Detector specification:
-        - str: Name of built-in detector
-        - dict: {'name': str, 'params': dict} for parameterized built-in
-        - callable: Custom detector
-        
-    Returns
-    -------
-    SteadyStateDetector
-        Configured detector instance
-    """
-    if callable(detector_spec):
-        return detector_spec
-    elif isinstance(detector_spec, str):
-        if detector_spec in STEADY_STATE_DETECTOR_REGISTRY:
-            return STEADY_STATE_DETECTOR_REGISTRY[detector_spec]()
-        else:
-            raise ValueError(f"Unknown steady-state detector: {detector_spec}")
-    elif isinstance(detector_spec, dict):
-        name = detector_spec['name']
-        params = detector_spec.get('params', {})
-        if name in STEADY_STATE_DETECTOR_REGISTRY:
-            return STEADY_STATE_DETECTOR_REGISTRY[name](**params)
-        else:
-            raise ValueError(f"Unknown steady-state detector: {name}")
-    else:
-        raise ValueError(f"Invalid detector specification: {detector_spec}")
 
 
 class FlowlineSpinup:
@@ -544,13 +460,19 @@ class FlowlineSpinup:
     
     def _setup_optimization_components(self):
         """Setup optimization components from target_matching configuration."""
-        # Get cost function
-        cost_function_spec = self.target_matching.get('cost_function', 'length_only')
-        self.cost_function = get_cost_function(cost_function_spec)
+        # Get cost function - must be a class or instance
+        cost_function_spec = self.target_matching.get('cost_function', LengthOnlyCost)
+        if isinstance(cost_function_spec, type):
+            self.cost_function = cost_function_spec()
+        else:
+            self.cost_function = cost_function_spec
         
-        # Get steady-state detector
-        detector_spec = self.target_matching.get('steady_state_detector', 'volume_change_rate')
-        self.steady_state_detector = get_steady_state_detector(detector_spec)
+        # Get steady-state detector - must be a class or instance
+        detector_spec = self.target_matching.get('steady_state_detector', VolumeChangeRateDetector)
+        if isinstance(detector_spec, type):
+            self.steady_state_detector = detector_spec()
+        else:
+            self.steady_state_detector = detector_spec
         
         # Set up optimization bounds using initial guess functions
         self._setup_optimization_bounds()
