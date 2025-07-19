@@ -311,4 +311,12 @@ sweep_parameters = {'forcing.T0': temp_values.tolist()}
 
 ### Critical Development Guidelines
 - **NEVER hard code default values, except for when they are the default in a function signature. Hardcoded default values are a SILENT FAILURE, which should ALWAYS be avoided. Let the model throw an error if something goes wrong!**
-```
+
+## Memories
+- You should NOT maintain backwards compatibility unless by default. You should ask if it seems necessary.
+- Do NOT follow the pattern of providing default arguments in the model. If a required argument is missing, let the function fail. Do NOT create any silent fail-states, or scenarios where the behavior would be unexpected.
+- When plotting subplots with matplotlib, use plot mosaic.
+- If you need to look inside a model results file that is too large, you should use xarray functions to print & analyze its structure.
+- When you run scripts from the command line that run the model, you should use the flag to disable output of the progress bar.
+- To avoid race conditions with dask, you should use fig.savefig() and plt.close(fig).
+- Don't put info about claude code in commit messages.

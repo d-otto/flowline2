@@ -193,8 +193,7 @@ class flowline2d:
                 unit_scale=self.config.delt,
                 unit="yrs",
                 bar_format="{desc}: {percentage:2.0f}%|{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}, {rate_fmt}{postfix}",
-                ascii=True,
-                ncols=100,
+                dynamic_ncols=True,   
             )
         
         for i in range_iter:

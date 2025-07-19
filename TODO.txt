@@ -1,0 +1,102 @@
+TODO:
+
+###############################################################################
+# Features
+###############################################################################
+
+# Parameter sweep
+# =============================================================================
+
+- Make the parameter sweep take different numpy RNG objects? Then be able to provide different seeds as the sweep param. Also, be able to give distribution type, mean, std, skew, and kurtosis.
+    - This is mostly accomplished, but it might be possible to do a function factory kind of thing where one FlowlineForcing object can be created, then a util method can be used to replicate it with just the sweep parameter changed (for a given set of valeus). Or something like that? NOTE: Right now, either params or objects can be swept over. This is good! I should keep that functionality intact.
+
+- Make the parameter sweep take a power spectrum of noise and a random seed. Use the inversion function from 552 to create the noise. Create a test to use some known power spectra and the same random seed (through numpy rng probably, or white vs. red nosie) and make sure that the resulting noise has the correct statistics and is identical for the same seed.
+
+- Create plumbing to link the ELA sensitivity analysis with the parameter sweep. The resulting functions should make it possible to find sets of parameters that keep a chosen independent parameter constant, then use those sets to run a parameter sweep that shows the difference in steady-state glaicer geometry
+        - 
+
+- When plotting instantaneous length change for variable bedshape, replicate the stickiness plot from way back
+- Make it possible to sweep over bed variations. Might need to separate flowlinegeometry object into one that handles the glacier geometry and one that handles the bed geoemtry. There are currently helper functions that create different bedshapes, but I need to figure out how to integrate those into the parameter sweep that isn't too cumbersome. Need to be able to compare concave and convex, for example. 
+- Refactor to use scipy's solve_ivp, or other methods which can do adaptive timestepping to speed up steady-state target matching.
+
+
+- Use 3-stage model to calculate approx final lengths for purpose of finding equivalent parameter sets
+
+# Spinup
+# =============================================================================
+
+- Make explicit how options are inherited between the spinup and the simulation. Everything should be specified in the spinup, including what is being changed in the simulation. The only thing specified in the simulation should be what is changing. 
+    - TODO: This should be strict & maybe throw an error if identical parameter is specified as a sanity check.    
+- Standardize zb, zb_gr, zb_gr_resampled, etc. to a common, unifying framework. Maybe "model_grid" or "zb_pts" and "zb_grid"? There is too much potential for interpolation errors, and once a model grid is established, it should stick with it by default unless there is some explicit change.
+
+- The spinup feature needs some love. Too many experimental runs start off with a dip in length.
+
+- Currently it is difficult to have the first ~50 yrs of the simulation use the spinup forcing temp if using the per_run_custom setting. This is important for experimental runs to validate that the model was initially at steady state.
+
+- Need to generalize some of the viz functions to take model results objects
+
+- Experimental forcing is very confusing, because values have to be provided that will be overwritten by spinup results.
+
+# Target matching
+# =============================================================================
+- Fail more gracefully, esp. in the case of T0 too warm for ice formation
+- Switch from minimize_scalar to 'minimize'. 
+- Better incorporate initial length guessing 
+
+
+
+# CLI
+# =============================================================================
+Some annoyign stuff right now where scripts need boilerplate. Need to make it more simple, like a single "enable_cli()" function.
+
+
+###############################################################################
+# Examples
+###############################################################################
+    - The glacier geometry variations example is pretty weak
+
+    - Rename many of the examples
+
+    - Create a dedicated function calculate hypsometry and implement it into plot_glacier_profile
+
+    -- Do a version of target_matching_test that targets constant volume instead of length.
+
+
+# Stochastic
+# =============================================================================
+    - Some issue where the title of the QC plots become the printed array of the timeseries. This has just been disabled for now, but it would be nice to put some helpful title back in.
+
+    - Small changes to std. dev seem to be creating massive length changes? Not sure why. 
+    - Still some instances of `# Clip elevation indices to valid range to prevent crashes`
+    - Switch from temp_noise_timeseries list to temp_noise_dict
+    
+# Forcing variations
+# =============================================================================
+  I can see the issue. The forcing_variations example is using the old
+  API where forcing constructors take ts and tf parameters (lines 54,
+  114). This API has changed. Since this example doesn't use the unified
+  sweep approach, it needs to be updated to match current patterns.   
+    
+# Bed(shape) warming comparison
+# =============================================================================
+- Once the sweep functionality can handle different bed geometry, this can be adapted to just use a single sweep object.
+
+###############################################################################
+# Tooling
+###############################################################################
+- Make AI.md load automatically in Aider
+- Merge AI.md and CLAUDE.md?
+
+###############################################################################
+# Analysis
+###############################################################################
+- ELA sensitivity analysis
+    - Use sharedx for the balance profile comparisons. Also, create plots where P0 is constant (something else is held const?)
+
+- Another paper based on parameter sweep for attribution analysis. Prev paper will establish reasonable ranges, fungibility, etc. The attribution paper will use the identified areas of uniqueness, fungibility, etc, to show that attribution occurs in all reasonable circumstances. Do this one with Fredrick and use the south cascade work.
+
+    - The next step in this analysis is to take the steady state profiles and show that they have variable sensitivity to a perturbation despite having the same ELA. This is obvious, but bears demonstrating within the parameter-sweep framework.
+    - As part 1 of more targetted tests, a set of steady-state profiles should be found that have the same length and average thickness (variable ELA). These glaciers look identical but do not behave the same. This would demonstrate that glacier geometry alone cannot be used to constrain a glacier model.
+    - In part 2 of more targetted tests, parameters should be found that have the same average thickness and b_t so as to have the same tau. Whether this is possible using the same bed shape among set members would be an important numerical test of the limits of linear theory. By allowing bedshape to vary, this likely will be possible. Demonstrating that the sensitivity varies in this case would also be a critical result.
+        - In order to accomplish a variable bedshape, I expect that a fairly inefficient grid search will be required. To make this possible, the inputs should simply be a mass balance curve and a bed shape curve. Combinations of parameters in the simple (non PDD) mass balance model can be used to generate the shape of the balance curve. Some parameters will need to be fixed from the outset to accomodate the computational scale. These parameters should probably be: elevation change, and length. Hypsometry should be variable. Cluster analysis on RGI can be used to pick some representative parameters. A reasonable deomonstration would be to do this analysis 4 times to cover the range of short to long and steep to shallow (slope). Analysis of GlaThiDa can be done to determine reasonable parameter ranges for bedshapes. Because the sample size is small, a much larger range should be considered possible, and an estimate of the population variability can be calculated. This might be through a spectral analysis, with some specific research used to determine the range of roughness. This could be analysis of proglacial areas and downstream lines. Michelle K. might be a good person to bring in for this portion, as well as An, Quinn, Bob Anderson, Seth Campell.
+        - Small note: the contour/color charts used in complex analysis might work well here.
