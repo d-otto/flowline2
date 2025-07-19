@@ -16,7 +16,7 @@ from flowline.spinup import FlowlineSpinup, LengthOnlyCost, LengthAndAverageThic
 import flowline.geometry as geometry_module
 
 # Import CLI utilities
-from flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
+from flowline.cli.utils import parse_sweep_cli_args
 
 
 def main():
@@ -24,6 +24,11 @@ def main():
     
     # Parse CLI arguments
     args = parse_sweep_cli_args("Target matching optimization demonstration")
+    
+    # Set base output directory with default (same pattern as other examples)
+    if args.output_dir is None:
+        args.output_dir = str(Path(__file__).resolve().parent / 'output')
+    base_output_dir = args.output_dir
     
     # =============================================================================
     # SETUP BASE CONFIGURATION
@@ -35,14 +40,15 @@ def main():
         tf=1000,  # Long spinup time for optimization
         delx=25,
         deltout=1,
-        min_thick=1.0
+        min_thick=1.0,
+        delt=0.0125/4
     )
     
     # Create geometry (using existing geometry function)
     geom_params = {
         'domain_extent': 15000,
         'x_gr_points': 75,
-        'elevation_drop': 500,
+        'elevation_drop': 1000,
         'width': 1000,
         'bed_characteristic_length': 10000,
     }
@@ -55,12 +61,12 @@ def main():
     
     # Create base forcing
     base_forcing = TemperaturePrecipitationForcing(
-        ts=0,
-        tf=1000,
-        P0=2000,    # 2000 mm/year precipitation
+        ts=base_config.ts,
+        tf=base_config.tf,
+        P0=2.0,     # 2.0 m/year precipitation
         T0=8.0,     # 8°C temperature (will be optimized)
-        gamma=6.5,  # 6.5°C/km lapse rate
-        mu=3.0      # 3.0 mm/°C/day melt factor
+        gamma=6.5e-3,  # 6.5°C/m lapse rate
+        mu=0.65     # 0.65 m/°C/year melt factor
     )
     
     # =============================================================================
@@ -79,10 +85,10 @@ def main():
         'adjustment_parameter': 'T0',                    # Optimize temperature
         'cost_function': LengthOnlyCost,                  # Only consider length
         'steady_state_detector': VolumeChangeRateDetector,   # Use dV/dt detector
-        'tolerance': 100,                                # Accept ±100m error
-        'parameter_bounds': (5.0, 12.0),                # T0 search bounds
+        'tolerance': 50.,                                # Accept ±100m error
+        'parameter_bounds': (7.0, 9.0),                # T0 search bounds
         'max_iterations': 10,                            # Max optimization steps
-        'max_simulation_time': 1000                      # Max simulation time
+        'max_simulation_time': base_config.tf           # Max simulation time
     }
     
     # Create spinup with target matching
@@ -94,7 +100,7 @@ def main():
     )
     
     # Generate optimized profile
-    output_dir = Path(args.output_dir) / "length_only_target"
+    output_dir = Path(base_output_dir) / "length_only_target"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Optimizing T0 to achieve 8km glacier length...")
@@ -135,10 +141,10 @@ def main():
     forcing_copy = TemperaturePrecipitationForcing(
         ts=0,
         tf=1500,
-        P0=2000,
+        P0=2.0,     # Reset to original value
         T0=8.0,     # Reset to original value
-        gamma=6.5,
-        mu=3.0
+        gamma=6.5e-3,
+        mu=0.65
     )
     
     # Create spinup with multi-target matching
@@ -156,7 +162,7 @@ def main():
     )
     
     # Generate optimized profile
-    output_dir = Path(args.output_dir) / "length_thickness_target"
+    output_dir = Path(base_output_dir) / "length_thickness_target"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Optimizing T0 to achieve 8km length AND 120m average thickness...")
@@ -210,10 +216,10 @@ def main():
     forcing_copy2 = TemperaturePrecipitationForcing(
         ts=0,
         tf=1200,
-        P0=2000,
+        P0=2.0,
         T0=8.0,
-        gamma=6.5,
-        mu=3.0
+        gamma=6.5e-3,
+        mu=0.65
     )
     
     # Create spinup with custom cost function
@@ -231,7 +237,7 @@ def main():
     )
     
     # Generate optimized profile
-    output_dir = Path(args.output_dir) / "custom_target"
+    output_dir = Path(base_output_dir) / "custom_target"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"Optimizing T0 to achieve target volume using custom cost function...")
@@ -256,7 +262,7 @@ def main():
     print(f"Length + thickness target:          T0 = {length_thickness_spinup.forcing.T0:.3f}°C")
     print(f"Custom volume target:               T0 = {custom_spinup.forcing.T0:.3f}°C")
     print("\nAll optimizations completed successfully!")
-    print(f"Results saved to: {args.output_dir}")
+    print(f"Results saved to: {base_output_dir}")
 
 
 if __name__ == "__main__":
