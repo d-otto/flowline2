@@ -39,10 +39,7 @@ def main():
         'bed_characteristic_length': 10000,
     }
     x_gr, zb_gr, w_geom = geometry_module.create_uniform_slope(**geom_params)
-    
-    # Create initial ice thickness profile (simple wedge shape)
-    h_init = np.maximum(0, 100 * (1 - x_gr / 5000))
-    
+    h_init = np.maximum(0, 100 * (1 - x_gr / 5000))  # Create initial ice thickness profile (simple wedge shape)
     geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
     
     # Create forcing with initial guess (using stable parameters)
@@ -63,7 +60,7 @@ def main():
         'adjustment_parameter': 'T0',        # Optimize temperature
         'cost_function': LengthOnlyCost,      # Simple length-only optimization
         'steady_state_detector': VolumeChangeRateDetector,  # Required detector
-        'tolerance': 0.1,                     # Accept +/- delx error TODO: is this in units of length of temperature?
+        'tolerance': 0.1,                     # Accept +/- delx error TODO: what units?
         'parameter_bounds': (7.0, 9.0),    # Extended temperature range
         'max_iterations': 100,                 # Limit optimization steps
         'max_simulation_time': config.tf           # Match the config.tf
