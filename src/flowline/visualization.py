@@ -444,20 +444,18 @@ def plot_glacier_profile(ax, x, zb, h_initial, h_final, ela_initial, ela_final,
     return ax_twin
 
 
-def plot_fractional_volume_timeseries(flat_ds, convex_ds, lapse_rates, concave_ds=None, save_path=None):
+def plot_fractional_volume_timeseries(*datasets, labels=None, save_path=None):
     """
-    Plot fractional volume change timeseries for different bed types and lapse rates.
+    Plot fractional volume change timeseries for different datasets.
+    
+    This function automatically detects the sweep dimension and iterates over all runs.
     
     Parameters
     ----------
-    flat_ds : xr.Dataset
-        Dataset from flat bed simulations
-    convex_ds : xr.Dataset
-        Dataset from convex bed simulations
-    lapse_rates : list
-        List of lapse rate values (in K/m)
-    concave_ds : xr.Dataset, optional
-        Dataset from concave bed simulations
+    *datasets : xr.Dataset
+        Variable number of datasets to plot (e.g., flat_ds, convex_ds, concave_ds)
+    labels : list of str, optional
+        Labels for each dataset. If None, uses 'Dataset 1', 'Dataset 2', etc.
     save_path : str or Path, optional
         Path to save the plot
         
@@ -466,62 +464,82 @@ def plot_fractional_volume_timeseries(flat_ds, convex_ds, lapse_rates, concave_d
     fig : matplotlib.figure.Figure
         The created figure
     """
-    # Determine number of panels based on available datasets
-    datasets = [('flat', flat_ds), ('convex', convex_ds)]
-    if concave_ds is not None:
-        datasets.append(('concave', concave_ds))
+    # Extract datasets and create labels
+    datasets = list(datasets)
+    if labels is None:
+        labels = [f'Dataset {i+1}' for i in range(len(datasets))]
     
     # Create subplot layout
     fig, axes = plt.subplots(1, len(datasets), figsize=(7*len(datasets), 6), sharey=True)
     if len(datasets) == 1:
         axes = [axes]
     
-    # Color scheme for lapse rates
-    colors = plt.cm.viridis(np.linspace(0, 1, len(lapse_rates)))
-    
     # Helper function to calculate and plot fractional volume change
     def plot_bed_type(ax, ds, bed_name):
-        for i, gamma in enumerate(lapse_rates):
-            # Select data for this lapse rate
-            if 'forcing_gamma' in ds.dims:
-                gamma_data = ds.sel(forcing_gamma=gamma)
-            else:
-                # Fallback if no dimension
-                gamma_data = ds
+        # Automatically detect sweep dimension
+        sweep_dims = [dim for dim in ds.dims if dim not in ['x', 'time']]
+        if not sweep_dims:
+            # No sweep dimension - single run
+            run_data = ds
+            volume = calculate_volume(run_data)
+            fractional_volume = calculate_fractional_change(volume)
+            ax.plot(run_data.time, fractional_volume, linewidth=2, label='Single Run')
+        else:
+            # Use the first sweep dimension found
+            sweep_dim = sweep_dims[0]
+            n_runs = ds.sizes[sweep_dim]
+            colors = plt.cm.viridis(np.linspace(0, 1, n_runs))
             
-            # Calculate volume (h * w * delx)
-            if 'w' in gamma_data and 'delx' in gamma_data.attrs:
-                volume = (gamma_data.h * gamma_data.w * gamma_data.attrs['delx']).sum(dim='x')
-            else:
-                # Fallback calculation
-                delx = gamma_data.attrs.get('delx', 50)
-                w = gamma_data.w if 'w' in gamma_data else 1000  # Default width
-                volume = (gamma_data.h * w * delx).sum(dim='x')
-            
-            # Calculate fractional change (0 to 1: initial to final)
-            initial_volume = volume.isel(time=0)
-            final_volume = volume.isel(time=-1)
-            fractional_volume = (volume - initial_volume) / (final_volume - initial_volume)
-            
-            # Plot timeseries
-            gamma_label = f'{gamma*1000:.1f} K/km'
-            ax.plot(gamma_data.time, fractional_volume, 
-                   color=colors[i], linewidth=2, label=gamma_label)
+            for i in range(n_runs):
+                run_data = ds.isel({sweep_dim: i})
+                volume = calculate_volume(run_data)
+                fractional_volume = calculate_fractional_change(volume)
+                
+                # Create label from coordinate if available
+                if sweep_dim in ds.coords:
+                    coord_value = ds.coords[sweep_dim].isel({sweep_dim: i}).values
+                    if sweep_dim == 'forcing_gamma':
+                        label = f'{coord_value*1000:.1f} K/km'
+                    elif sweep_dim == 'run_id':
+                        label = f'Run {i}'
+                    else:
+                        label = f'{sweep_dim}={coord_value}'
+                else:
+                    label = f'Run {i}'
+                
+                ax.plot(run_data.time, fractional_volume, 
+                       color=colors[i], linewidth=2, label=label)
         
         # Formatting
         ax.set_xlabel('Time (years)')
         ax.set_ylabel('Fractional Volume Change\n(V(t)-V₀)/(V_final-V₀)')
-        ax.set_title(f'{bed_name.title()} Bed')
+        ax.set_title(f'{bed_name}')
         ax.grid(True, alpha=0.3)
         ax.legend()
         ax.set_ylim(0, 1)  # Range from 0 to 1
     
-    # Plot all bed types
-    for i, (bed_name, ds) in enumerate(datasets):
-        plot_bed_type(axes[i], ds, bed_name)
+    def calculate_volume(run_data):
+        """Calculate volume from thickness data"""
+        if 'w' in run_data and 'delx' in run_data.attrs:
+            return (run_data.h * run_data.w * run_data.attrs['delx']).sum(dim='x')
+        else:
+            # Fallback calculation
+            delx = run_data.attrs.get('delx', 50)
+            w = run_data.w if 'w' in run_data else 1000  # Default width
+            return (run_data.h * w * delx).sum(dim='x')
+    
+    def calculate_fractional_change(volume):
+        """Calculate fractional change from initial to final"""
+        initial_volume = volume.isel(time=0)
+        final_volume = volume.isel(time=-1)
+        return (volume - initial_volume) / (final_volume - initial_volume)
+    
+    # Plot all datasets
+    for i, (ds, label) in enumerate(zip(datasets, labels)):
+        plot_bed_type(axes[i], ds, label)
     
     # Overall title
-    fig.suptitle('Fractional Volume Change Timeseries by Lapse Rate', fontsize=16)
+    fig.suptitle('Fractional Volume Change Timeseries', fontsize=16)
     plt.tight_layout()
     
     # Save if requested
@@ -531,20 +549,19 @@ def plot_fractional_volume_timeseries(flat_ds, convex_ds, lapse_rates, concave_d
     return fig
 
 
-def plot_volume_length_timeseries(flat_ds, convex_ds, lapse_rates, concave_ds=None, save_path=None):
+def plot_volume_length_timeseries(*datasets, labels=None, save_path=None):
     """
-    Plot volume and length timeseries for different bed types and lapse rates.
+    Plot volume and length timeseries for different datasets.
+    
+    This function automatically detects the sweep dimension and creates a grid
+    showing volume and length timeseries for each run in each dataset.
     
     Parameters
     ----------
-    flat_ds : xr.Dataset
-        Dataset from flat bed simulations
-    convex_ds : xr.Dataset
-        Dataset from convex bed simulations
-    lapse_rates : list
-        List of lapse rate values (in K/m)
-    concave_ds : xr.Dataset, optional
-        Dataset from concave bed simulations
+    *datasets : xr.Dataset
+        Variable number of datasets to plot
+    labels : list of str, optional
+        Labels for each dataset. If None, uses 'Dataset 1', 'Dataset 2', etc.
     save_path : str or Path, optional
         Path to save the plot
         
@@ -553,70 +570,99 @@ def plot_volume_length_timeseries(flat_ds, convex_ds, lapse_rates, concave_ds=No
     fig : matplotlib.figure.Figure
         The created figure
     """
-    # Create 2x2 subplot grid: lapse rates as columns, variables as rows
-    fig, axes = plt.subplots(2, len(lapse_rates), figsize=(7*len(lapse_rates), 10))
+    # Extract datasets and create labels
+    datasets = list(datasets)
+    if labels is None:
+        labels = [f'Dataset {i+1}' for i in range(len(datasets))]
     
-    # Ensure axes is 2D even for single lapse rate
-    if len(lapse_rates) == 1:
+    # Determine number of runs from first dataset
+    first_ds = datasets[0]
+    sweep_dims = [dim for dim in first_ds.dims if dim not in ['x', 'time']]
+    n_runs = first_ds.sizes[sweep_dims[0]] if sweep_dims else 1
+    
+    # Create subplot grid: runs as columns, variables as rows
+    fig, axes = plt.subplots(2, n_runs, figsize=(7*n_runs, 10))
+    
+    # Ensure axes is 2D even for single run
+    if n_runs == 1:
         axes = axes.reshape(2, 1)
     
-    # Determine available datasets and colors
-    datasets = [('flat', flat_ds), ('convex', convex_ds)]
-    bed_colors = {'flat': 'tab:blue', 'convex': 'tab:orange'}
+    # Color scheme for datasets
+    colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
     
-    if concave_ds is not None:
-        datasets.append(('concave', concave_ds))
-        bed_colors['concave'] = 'tab:green'
+    # Helper functions
+    def calculate_volume(run_data):
+        """Calculate volume from thickness data and convert to km³"""
+        if 'w' in run_data and 'delx' in run_data.attrs:
+            return (run_data.h * run_data.w * run_data.attrs['delx']).sum(dim='x') / 1e9
+        else:
+            delx = run_data.attrs.get('delx', 50)
+            w = run_data.w if 'w' in run_data else 1000
+            return (run_data.h * w * delx).sum(dim='x') / 1e9
     
-    # Helper function to plot timeseries for a given lapse rate and variable
-    def plot_variable(ax, gamma_val, variable_name):
+    def calculate_length(run_data):
+        """Calculate length from edge data and convert to km"""
+        return run_data.edge / 1000
+    
+    def get_run_label(ds, run_idx):
+        """Generate run label from dataset coordinates"""
+        sweep_dims = [dim for dim in ds.dims if dim not in ['x', 'time']]
+        if not sweep_dims:
+            return 'Single Run'
         
-        for bed_name, ds in datasets:
-            # Select data for this lapse rate
-            if 'forcing_gamma' in ds.dims:
-                gamma_data = ds.sel(forcing_gamma=gamma_val)
+        sweep_dim = sweep_dims[0]
+        if sweep_dim in ds.coords:
+            coord_value = ds.coords[sweep_dim].isel({sweep_dim: run_idx}).values
+            if sweep_dim == 'forcing_gamma':
+                return f'{coord_value*1000:.1f} K/km'
+            elif sweep_dim == 'run_id':
+                return f'Run {run_idx}'
             else:
-                # Fallback if no dimension
-                gamma_data = ds
+                return f'{sweep_dim}={coord_value}'
+        else:
+            return f'Run {run_idx}'
+    
+    # Plot volume and length for each run
+    variables = [('volume', 'Volume (km³)', calculate_volume), 
+                 ('length', 'Length (km)', calculate_length)]
+    
+    for run_idx in range(n_runs):
+        for var_idx, (var_name, ylabel, calc_func) in enumerate(variables):
+            ax = axes[var_idx, run_idx]
             
-            if variable_name == 'volume':
-                # Calculate volume (h * w * delx) and convert to km³
-                if 'w' in gamma_data and 'delx' in gamma_data.attrs:
-                    values = (gamma_data.h * gamma_data.w * gamma_data.attrs['delx']).sum(dim='x') / 1e9
+            # Plot each dataset
+            for ds_idx, (ds, ds_label) in enumerate(zip(datasets, labels)):
+                color = colors[ds_idx % len(colors)]
+                
+                # Get data for this run
+                sweep_dims = [dim for dim in ds.dims if dim not in ['x', 'time']]
+                if sweep_dims:
+                    run_data = ds.isel({sweep_dims[0]: run_idx})
                 else:
-                    # Fallback calculation
-                    delx = gamma_data.attrs.get('delx', 50)
-                    w = gamma_data.w if 'w' in gamma_data else 1000  # Default width
-                    values = (gamma_data.h * w * delx).sum(dim='x') / 1e9
-                ylabel = 'Volume (km³)'
+                    run_data = ds
+                
+                # Calculate variable
+                values = calc_func(run_data)
+                
+                # Plot timeseries
+                ax.plot(run_data.time, values, 
+                       color=color, linewidth=2, label=ds_label)
             
-            elif variable_name == 'length':
-                # Use edge data and convert to km
-                values = gamma_data.edge / 1000
-                ylabel = 'Length (km)'
+            # Formatting
+            ax.set_xlabel('Time (years)')
+            ax.set_ylabel(ylabel)
             
-            # Plot timeseries
-            bed_label = f'{bed_name.title()} bed'
-            ax.plot(gamma_data.time, values, 
-                   color=bed_colors[bed_name], linewidth=2, label=bed_label)
-        
-        # Formatting
-        ax.set_xlabel('Time (years)')
-        ax.set_ylabel(ylabel)
-        gamma_label = f'{gamma_val*1000:.1f} K/km'
-        ax.set_title(f'{variable_name.title()} - {gamma_label} Lapse Rate')
-        ax.grid(True, alpha=0.3)
-        ax.legend()
-    
-    # Plot all combinations
-    variables = ['volume', 'length']
-    
-    for col, gamma in enumerate(lapse_rates):
-        for row, variable in enumerate(variables):
-            plot_variable(axes[row, col], gamma, variable)
+            # Title with run information
+            run_label = get_run_label(datasets[0], run_idx)
+            ax.set_title(f'{var_name.title()} - {run_label}')
+            ax.grid(True, alpha=0.3)
+            
+            # Only show legend on first plot
+            if var_idx == 0 and run_idx == 0:
+                ax.legend()
     
     # Overall title
-    fig.suptitle('Volume and Length Timeseries by Lapse Rate', fontsize=16)
+    fig.suptitle('Volume and Length Timeseries', fontsize=16)
     plt.tight_layout()
     
     # Save if requested
