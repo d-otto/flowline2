@@ -2,6 +2,7 @@ import subprocess
 import sys
 import time
 import json
+import logging
 from pathlib import Path
 from copy import deepcopy
 import itertools
@@ -19,6 +20,10 @@ import xarray as xr
 from flowline.entrypoints import run_flowline_simulation, run_spinup_simulation
 from flowline.visualization import plot_sweep_qc
 from flowline.spinup import FlowlineSpinup
+
+# Set up logger
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 class FlowlineSweep:
     """
@@ -378,7 +383,19 @@ class FlowlineSweep:
         spinup_obj_results = {}
         for i, spinup_obj in enumerate(spinup_tasks.keys()):
             result = spinup_results[i]
-            profile_path = result
+            # Handle both old (profile_path) and new (profile_path, optimized_params) formats
+            if isinstance(result, tuple):
+                profile_path, optimized_parameters = result
+                # Apply optimized parameters back to the spinup object
+                for param_name, param_value in optimized_parameters.items():
+                    if hasattr(spinup_obj.forcing, param_name):
+                        setattr(spinup_obj.forcing, param_name, param_value)
+                        logger.debug(f"Applied optimized {param_name}={param_value:.3f} to spinup object")
+            else:
+                # Legacy format - just profile path
+                profile_path = result
+                optimized_parameters = {}
+                
             if str(profile_path).startswith("ERROR"):
                 raise RuntimeError(f"FlowlineSpinup failed: {profile_path}")
             
@@ -446,7 +463,9 @@ class FlowlineSweep:
                     current_value = getattr(perturbed_forcing, param_name)
                     new_value = perturbation_func(current_value)
                     setattr(perturbed_forcing, param_name, new_value)
-                    print(f"Applied experimental perturbation {run_id}: {param_path} {current_value} -> {new_value}")
+                    logger.debug(f"{run_id}: Applied experimental perturbation {param_path} {current_value} -> {new_value}")
+                    # Debug: Log all forcing parameters after perturbation
+                    logger.debug(f"{run_id}: Final forcing - T0={perturbed_forcing.T0:.3f}, gamma={perturbed_forcing.gamma:.6f}")
         
         return perturbed_config, perturbed_geometry, perturbed_forcing
 
@@ -709,6 +728,10 @@ class FlowlineSweep:
                 config = deepcopy(spinup_obj.config)
                 geometry = deepcopy(spinup_obj.geometry)
                 forcing = deepcopy(spinup_obj.forcing)
+                
+                # Debug: Log inherited parameters
+                logger.debug(f"{run_id}: Inherited T0={forcing.T0:.3f}, gamma={forcing.gamma:.6f} from spinup")
+                logger.debug(f"{run_id}: Spinup object forcing T0={spinup_obj.forcing.T0:.3f}, gamma={spinup_obj.forcing.gamma:.6f}")
                 
                 # Apply spinup profile to geometry
                 if run_id in run_profile_mapping:

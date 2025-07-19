@@ -12,12 +12,18 @@ from pathlib import Path
 from copy import deepcopy
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+import math
+import logging
 
 import numpy as np
 from scipy.optimize import minimize_scalar
 from flowline.entrypoints import run_spinup_simulation
 from flowline.utils import objects_equal, object_hash
 from tqdm import tqdm
+
+# Set up logger
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 # =============================================================================
@@ -103,15 +109,13 @@ class LengthOnlyCost(CostFunction):
     
     def __call__(self, model_state: Dict[str, Any], targets: Dict[str, Any]) -> float:
         edge_idx = model_state['edge']
-        
-        # Handle case where glacier has completely melted (edge_idx = 0)
-        if edge_idx <= 0:
-            current_length = 0.0
-        else:
-            current_length = edge_idx * model_state['delx']
-        
+        current_length = edge_idx * model_state['delx']
         target_length = targets['target_length']
         error = current_length - target_length
+        
+        if math.isinf(error):
+            error = 1e8  # arbitrarily high number
+        
         return abs(error)
 
     def initial_guess(self, geometry: Any, forcing: Any, targets: Dict[str, Any]) -> Optional[float]:
@@ -295,9 +299,9 @@ class VolumeChangeRateDetector(SteadyStateDetector):
         # Check if average rate of change is below threshold
         mean_dV_dt = np.mean(np.abs(dV_dt))
         
-        # Debug output
-        if len(time_history) % 50 == 0:  # Print every 50 steps
-            safe_print(f"  Steady state check: t={time_history[-1]:.1f}, mean_dV_dt={mean_dV_dt:.2e}, threshold={self.threshold:.2e}")
+        # # Debug output
+        # if len(time_history) % 50 == 0:  # Print every 50 steps
+        #     safe_print(f"  Steady state check: t={time_history[-1]:.1f}, mean_dV_dt={mean_dV_dt:.2e}, threshold={self.threshold:.2e}")
         
         return bool(mean_dV_dt < self.threshold)
 
@@ -464,21 +468,25 @@ class FlowlineSpinup:
             
         Returns
         -------
-        str
-            Path to the generated steady-state profile
+        tuple
+            (profile_path, optimized_parameters) where optimized_parameters 
+            is a dict of parameter names to optimized values
         """
         output_dir = Path(output_dir)
         spinup_id = f"spinup_{run_id}"
         
+        optimized_parameters = {}
         if self.target_matching:
             # Use optimization-based target matching
             optimized_param = self._optimize_target_matching(output_dir, spinup_id, no_progress)
             safe_print(f"Target matching optimization completed. Optimal {self.target_matching['adjustment_parameter']} = {optimized_param:.3f}")
+            # Store the optimized parameter
+            optimized_parameters[self.target_matching['adjustment_parameter']] = optimized_param
         
         # Run final spinup with optimized parameters
         profile_path = self._run_steady_state_spinup(output_dir, spinup_id, no_progress)
         
-        return profile_path
+        return profile_path, optimized_parameters
     
     def _optimize_target_matching(self, output_dir, spinup_id, no_progress):
         """
@@ -514,20 +522,21 @@ class FlowlineSpinup:
             """
             # Set the parameter value
             setattr(self.forcing, adjustment_parameter, param_value)
+            print(f"Optimization trying: {adjustment_parameter} = {param_value:.3f}")
             
             # Run simulation with inline optimization monitoring
             cost = self._run_simulation_with_monitoring(
                 output_dir, f"{spinup_id}_opt_{param_value:.3f}", no_progress
             )
             
-            print(f"Optimization: {adjustment_parameter} = {param_value:.3f}, cost = {cost:.1f}")
+            print(f"Optimization result: {adjustment_parameter} = {param_value:.3f}, cost = {cost:.1f}")
             
             # Add diagnostic info about the final state and store optimization history
             if hasattr(self, '_last_optimization_state'):
                 state = self._last_optimization_state
-                final_length = state.get('final_length', 0)
-                final_edge_idx = state.get('final_edge_idx', 0)
-                steady_state_time = state.get('steady_state_time', 'N/A')
+                final_length = state["final_length"]
+                final_edge_idx = state["final_edge_idx"]
+                steady_state_time = state["steady_state_time"]
                 safe_print(f"  -> Final length: {final_length:.1f}m (edge_idx={final_edge_idx}), steady state at: {steady_state_time}")
                 
                 # Store in optimization history
@@ -560,13 +569,14 @@ class FlowlineSpinup:
         # Set the optimal parameter value
         optimal_param = result.x
         setattr(self.forcing, adjustment_parameter, optimal_param)
+        logger.debug(f"OPTIMIZATION: Set {adjustment_parameter}={optimal_param:.3f} on forcing object, now T0={self.forcing.T0:.3f}")
         
         # Create a simple visualization of the optimization progress
-        self._create_optimization_plot()
+        self._create_optimization_plot(output_dir, spinup_id)
         
         return optimal_param
     
-    def _create_optimization_plot(self):
+    def _create_optimization_plot(self, output_dir=None, spinup_id=None):
         """Create a visualization of the optimization progress."""
         if not hasattr(self, '_optimization_history') or len(self._optimization_history['params']) == 0:
             print("No optimization history available for plotting")
@@ -576,46 +586,152 @@ class FlowlineSpinup:
             import matplotlib.pyplot as plt
             import numpy as np
             
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+            # Use subplot_mosaic for better layout control
+            fig = plt.figure(figsize=(15, 10))
+            mosaic = [
+                ['step_temp', 'temp_length'],
+                ['step_cost', 'temp_cost']
+            ]
+            axes = fig.subplot_mosaic(mosaic)
             
-            params = self._optimization_history['params']
-            costs = self._optimization_history['costs']
-            lengths = self._optimization_history['lengths']
+            params = np.array(self._optimization_history['params'])
+            costs = np.array(self._optimization_history['costs'])
+            lengths = np.array(self._optimization_history['lengths'])
+            steps = np.arange(len(params))
             
-            # Filter out infinite costs for plotting
+            # Filter out infinite costs for some plots
             finite_mask = np.isfinite(costs)
+            param_name = self.target_matching["adjustment_parameter"] if self.target_matching else "Parameter"
+            target_length = self.target_matching['targets']['target_length'] if self.target_matching else 8000
             
-            # Plot 1: Parameter vs Cost
-            ax1.plot(params, costs, 'bo-', label='Cost')
-            if np.any(finite_mask):
-                ax1.plot(np.array(params)[finite_mask], np.array(costs)[finite_mask], 'ro-', label='Finite Cost')
-            if self.target_matching:
-                ax1.set_xlabel(f'{self.target_matching["adjustment_parameter"]}°C')
-            else:
-                ax1.set_xlabel('Parameter')
-            ax1.set_ylabel('Cost (m²)')
-            ax1.set_title('Optimization Progress: Parameter vs Cost')
+            # Plot 1: Optimization Step vs Temperature (shows path optimizer takes)
+            ax1 = axes['step_temp']
+            ax1.plot(steps, params, 'b-o', linewidth=2, markersize=6, label=f'{param_name} Path')
+            ax1.set_xlabel('Optimization Step')
+            ax1.set_ylabel(f'{param_name} (°C)')
+            ax1.set_title('Optimization Path: Step vs Temperature')
             ax1.grid(True, alpha=0.3)
             ax1.legend()
             
-            # Plot 2: Parameter vs Length
-            ax2.plot(params, lengths, 'go-', label='Glacier Length')
-            target_length = self.target_matching['targets']['target_length'] if self.target_matching else 8000
-            ax2.axhline(y=target_length, color='r', linestyle='--', label=f'Target ({target_length}m)')
-            if self.target_matching:
-                ax2.set_xlabel(f'{self.target_matching["adjustment_parameter"]}°C')
-            else:
-                ax2.set_xlabel('Parameter')
+            # Plot 2: Temperature vs Length (relationship)
+            ax2 = axes['temp_length']
+            scatter = ax2.scatter(params, lengths, c=steps, cmap='viridis', s=60, alpha=0.8, edgecolors='black', linewidth=0.5)
+            ax2.plot(params, lengths, 'k-', alpha=0.3, linewidth=1)
+            ax2.axhline(y=target_length, color='r', linestyle='--', linewidth=2, label=f'Target ({target_length}m)')
+            ax2.set_xlabel(f'{param_name} (°C)')
             ax2.set_ylabel('Glacier Length (m)')
-            ax2.set_title('Optimization Progress: Parameter vs Length')
+            ax2.set_title('Temperature vs Length Relationship')
             ax2.grid(True, alpha=0.3)
             ax2.legend()
             
-            plt.tight_layout()
-            plt.savefig('optimization_progress.png', dpi=150, bbox_inches='tight')
-            plt.close()
+            # Add colorbar for step progression
+            cbar = plt.colorbar(scatter, ax=ax2)
+            cbar.set_label('Optimization Step')
             
-            print("Optimization progress plot saved to: optimization_progress.png")
+            # Plot 3: Optimization Step vs Cost (shows convergence)
+            ax3 = axes['step_cost']
+            
+            # Separate finite and infinite costs for better visualization
+            infinite_mask = ~finite_mask
+            
+            # Plot finite costs on main scale
+            if np.any(finite_mask):
+                finite_steps = steps[finite_mask]
+                finite_costs = costs[finite_mask]
+                ax3.plot(finite_steps, finite_costs, 'go-', linewidth=2, markersize=8, label='Finite Cost', zorder=3)
+            
+            # Plot infinite costs as special markers at the top
+            if np.any(infinite_mask):
+                infinite_steps = steps[infinite_mask]
+                # Use a high value for plotting infinite costs
+                max_finite = np.max(costs[finite_mask]) if np.any(finite_mask) else 1000
+                plot_height = max_finite * 1.2 if max_finite > 0 else 1000
+                ax3.scatter(infinite_steps, [plot_height] * len(infinite_steps), 
+                           marker='^', s=100, color='red', edgecolor='darkred', 
+                           linewidth=2, label='Infinite Cost', zorder=4)
+                
+                # Add text annotations for infinite costs
+                for step in infinite_steps:
+                    ax3.annotate('∞', (step, plot_height), xytext=(0, 10), 
+                               textcoords='offset points', ha='center', va='bottom',
+                               fontsize=12, color='darkred', weight='bold')
+            
+            ax3.set_xlabel('Optimization Step')
+            ax3.set_ylabel('Cost Function Value')
+            ax3.set_title('Optimization Convergence: Step vs Cost')
+            ax3.grid(True, alpha=0.3)
+            ax3.legend()
+            
+            # Set y-axis to show both finite and infinite regions
+            if np.any(finite_mask) and np.any(infinite_mask):
+                ax3.set_ylim(bottom=np.min(costs[finite_mask]) * 0.9 if np.any(finite_mask) else 0)
+            
+            # Plot 4: Temperature vs Cost (cost landscape)
+            ax4 = axes['temp_cost']
+            
+            # Plot finite costs with color-coded steps
+            if np.any(finite_mask):
+                finite_params = params[finite_mask]
+                finite_costs_plot = costs[finite_mask]
+                finite_steps_plot = steps[finite_mask]
+                scatter2 = ax4.scatter(finite_params, finite_costs_plot, c=finite_steps_plot, 
+                                     cmap='plasma', s=60, alpha=0.8, edgecolors='black', linewidth=0.5,
+                                     label='Finite Cost')
+                ax4.plot(finite_params, finite_costs_plot, 'k-', alpha=0.3, linewidth=1)
+                
+                # Add colorbar
+                cbar2 = plt.colorbar(scatter2, ax=ax4)
+                cbar2.set_label('Optimization Step')
+                
+                # Plot infinite costs as special markers
+                if np.any(infinite_mask):
+                    infinite_params = params[infinite_mask]
+                    max_finite_cost = np.max(finite_costs_plot)
+                    infinite_plot_height = max_finite_cost * 1.3 if max_finite_cost > 0 else 1000
+                    
+                    ax4.scatter(infinite_params, [infinite_plot_height] * len(infinite_params),
+                               marker='X', s=120, color='red', edgecolor='darkred', 
+                               linewidth=2, label='Infinite Cost', zorder=4)
+                    
+                    # Add infinity symbols
+                    for param in infinite_params:
+                        ax4.annotate('∞', (param, infinite_plot_height), xytext=(0, 10), 
+                                   textcoords='offset points', ha='center', va='bottom',
+                                   fontsize=12, color='darkred', weight='bold')
+            else:
+                # Fallback if no finite costs
+                ax4.scatter(params, [1000] * len(params), marker='X', s=120, color='red', 
+                           edgecolor='darkred', linewidth=2, label='Infinite Cost')
+                for param in params:
+                    ax4.annotate('∞', (param, 1000), xytext=(0, 10), 
+                               textcoords='offset points', ha='center', va='bottom',
+                               fontsize=12, color='darkred', weight='bold')
+            
+            ax4.axhline(y=0, color='g', linestyle='--', linewidth=2, alpha=0.7, label='Perfect Match')
+            ax4.set_xlabel(f'{param_name} (°C)')
+            ax4.set_ylabel('Cost Function Value')
+            ax4.set_title('Cost Landscape: Temperature vs Cost')
+            ax4.grid(True, alpha=0.3)
+            ax4.legend()
+            
+            plt.tight_layout()
+            
+            # Save to output directory if provided, otherwise current directory
+            # Include spinup_id in filename if provided
+            if spinup_id:
+                filename = f'optimization_progress_{spinup_id}.png'
+            else:
+                filename = 'optimization_progress.png'
+                
+            if output_dir:
+                plot_path = Path(output_dir) / filename
+            else:
+                plot_path = filename
+            
+            fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+            plt.close(fig)
+            
+            print(f"Optimization progress plot saved to: {plot_path}")
             
         except ImportError:
             print("Matplotlib not available for plotting")
@@ -648,7 +764,7 @@ class FlowlineSpinup:
         
         # Create extended config for optimization
         extended_config = deepcopy(self.config)
-        max_time = self.target_matching.get('max_simulation_time', 1000)
+        max_time = self.target_matching['max_simulation_time']
         extended_config.tf = max_time
         extended_config.deltout = 1.0  # Output every year for monitoring
         
@@ -703,8 +819,6 @@ class FlowlineSpinup:
         float
             Final cost value when steady state is achieved
         """
-        import numpy as np
-        from tqdm import tqdm
         from flowline.flowline2d import space_loop
         
         # Initialize simulation state
@@ -722,10 +836,9 @@ class FlowlineSpinup:
             range_iter = tqdm(
                 range(0, model.nts),
                 unit_scale=model.config.delt,
-                unit="yrs",
                 bar_format="{desc}: {percentage:2.0f}%|{bar}| {n:.1f}/{total:.1f} [{elapsed}<{remaining}, {rate_fmt}{postfix}",
-                ascii=True,
-                ncols=100,
+                unit="yrs",
+                dynamic_ncols=True
             )
         
         for i in range_iter:
@@ -810,9 +923,8 @@ class FlowlineSpinup:
         # Special case: completely melted glacier is at steady state
         glacier_melted = edge_idx <= 0
         
-        if glacier_melted or self.steady_state_detector(model_state):
-            if not model.steady_state_achieved:
-                model.steady_state_achieved = True
+        if self.steady_state_detector(model_state):
+            if model.steady_state_achieved:
                 
                 # Calculate final cost
                 final_model_state = {
@@ -834,9 +946,9 @@ class FlowlineSpinup:
                     'final_volume': volume
                 }
                 
-                safe_print(f"Steady state achieved at t={current_time:.1f} years")
-                safe_print(f"Final glacier length: {final_length:.1f}m (target: {self.target_matching['targets']['target_length']}m)")
-                safe_print(f"Final cost: {model.optimization_cost:.1f}")
+                # safe_print(f"Steady state achieved at t={current_time:.1f} years")
+                # safe_print(f"Final glacier length: {final_length:.1f}m")
+                # safe_print(f"Final cost: {model.optimization_cost:.1f}")
                 
                 return True  # Steady state achieved
         
