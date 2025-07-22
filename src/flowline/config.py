@@ -8,7 +8,7 @@ class FlowlineConfig:
     # Physical parameters
     rho: float = 916.8  # Ice density kg/m^3
     g: float = 9.81     # Gravity m/s^2
-    fd: float = 1.9e-24 # Deformation parameter Pa^-3 s^-2
+    fd: float = 2.4e-24 # Deformation parameter Pa^-3 s^-2
     fs: float = 5.7e-20 # Sliding parameter Pa^-3 s^-1 m^2
     n: int = 3          # Glenn's flow law parameter
     k: int = 3          # Sliding law parameter
@@ -29,7 +29,7 @@ class FlowlineConfig:
     # Climate parameters
     gamma: float = 6.5e-3      # Temperature lapse rate degC/km
     mu: float = 0.65           # Melt rate m/yr/degC
-    hmb: bool = True           # Height mass balance feedback
+    hmb: bool = False           # Height mass balance feedback
     
     def __post_init__(self):
         # Convert deformation parameters from seconds to years
