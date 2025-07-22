@@ -549,6 +549,136 @@ def plot_fractional_volume_timeseries(*datasets, labels=None, save_path=None):
     return fig
 
 
+def plot_thickness_profiles(ds, save_path=None, time_indices=None, colors=None):
+    """
+    Plot initial and final thickness profiles for glacier simulations in a 4-panel layout.
+    
+    Top panels show surface elevation profiles with bed topography.
+    Bottom panels show thickness profiles without topography.
+    Left column is initial state, right column is final state.
+    
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Combined results dataset with dimensions (run_id, time, x)
+        Must contain variables: h (thickness), zb (bed), x (coordinates)
+    save_path : str or Path, optional
+        Path to save the plot
+    time_indices : tuple of int, optional
+        (initial_time_idx, final_time_idx). If None, uses (0, -1)
+    colors : list of str, optional
+        Colors for each run. If None, uses viridis colormap
+        
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The created figure
+    """
+    if time_indices is None:
+        time_indices = (0, -1)
+    
+    initial_time_idx, final_time_idx = time_indices
+    
+    # Get run dimension and create color scheme
+    run_dim = [dim for dim in ds.dims if dim not in ['x', 'time']][0]
+    n_runs = ds.sizes[run_dim]
+    
+    if colors is None:
+        colors = plt.cm.viridis(np.linspace(0, 1, n_runs))
+    
+    # Create 4-panel figure
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    
+    # Panel labels
+    panel_titles = [
+        'Initial Surface Profiles', 'Final Surface Profiles', 
+        'Initial Thickness', 'Final Thickness'
+    ]
+    
+    # Plot each run
+    for i in range(n_runs):
+        run_data = ds.isel({run_dim: i})
+        
+        # Get run identifier
+        if run_dim in ds.coords:
+            run_id = ds.coords[run_dim].isel({run_dim: i}).values
+        else:
+            run_id = f'Run {i}'
+        
+        # Extract spatial coordinates and bed elevation
+        x = run_data.x.values / 1000  # Convert to km
+        zb = run_data.zb.values
+        
+        # Get initial and final thickness
+        h_initial = run_data.h.isel(time=initial_time_idx).values
+        h_final = run_data.h.isel(time=final_time_idx).values
+        
+        # Calculate surface elevations
+        surface_initial = zb + h_initial
+        surface_final = zb + h_final
+        
+        # Find terminus positions (where thickness > 0.01 m)
+        terminus_initial = np.where(h_initial > 0.01)[0]
+        terminus_final = np.where(h_final > 0.01)[0]
+        
+        terminus_idx_initial = terminus_initial[-1] if len(terminus_initial) > 0 else 0
+        terminus_idx_final = terminus_final[-1] if len(terminus_final) > 0 else 0
+        
+        # Top left: Initial surface profiles with bed
+        ax = axes[0, 0]
+        if i == 0:
+            ax.plot(x, zb, 'k-', linewidth=2, label='Bed', zorder=1)
+        if terminus_idx_initial > 0:
+            ax.plot(x[:terminus_idx_initial+1], surface_initial[:terminus_idx_initial+1], 
+                   color=colors[i], linewidth=2, label=f'{run_id}')
+        
+        # Top right: Final surface profiles with bed  
+        ax = axes[0, 1]
+        if i == 0:
+            ax.plot(x, zb, 'k-', linewidth=2, label='Bed', zorder=1)
+        if terminus_idx_final > 0:
+            ax.plot(x[:terminus_idx_final+1], surface_final[:terminus_idx_final+1], 
+                   color=colors[i], linewidth=2, label=f'{run_id}')
+        
+        # Bottom left: Initial thickness only
+        ax = axes[1, 0]
+        if terminus_idx_initial > 0:
+            ax.plot(x[:terminus_idx_initial+1], h_initial[:terminus_idx_initial+1], 
+                   color=colors[i], linewidth=2, label=f'{run_id}')
+        
+        # Bottom right: Final thickness only
+        ax = axes[1, 1]
+        if terminus_idx_final > 0:
+            ax.plot(x[:terminus_idx_final+1], h_final[:terminus_idx_final+1], 
+                   color=colors[i], linewidth=2, label=f'{run_id}')
+    
+    # Format all panels
+    for i, ax in enumerate(axes.flat):
+        ax.set_xlabel('Distance (km)')
+        ax.grid(True, alpha=0.3)
+        ax.set_title(panel_titles[i])
+        
+        # Set y-axis labels
+        if i < 2:  # Top panels (surface elevation)
+            ax.set_ylabel('Elevation (m)')
+        else:  # Bottom panels (thickness)
+            ax.set_ylabel('Thickness (m)')
+            ax.set_ylim(bottom=0)  # Start thickness plots at 0
+        
+        # Add legend to top-left panel only
+        if i == 0:
+            ax.legend(loc='upper right')
+    
+    plt.tight_layout()
+    
+    # Save if requested
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+    
+    return fig
+
+
 def plot_volume_length_timeseries(*datasets, labels=None, save_path=None):
     """
     Plot volume and length timeseries for different datasets.
