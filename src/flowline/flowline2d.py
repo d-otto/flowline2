@@ -356,6 +356,9 @@ class flowline2d:
                 final_model_state = {
                     'edge': edge_idx,
                     'delx': self.config.delx,
+                    'b': b,
+                    'ela': self.ela[-1],
+                    'F': self.F[-1],
                     'h': h,
                     'volume': volume,
                     'area': np.sum(self.w[:edge_idx]) * self.config.delx if edge_idx > 0 else 0.0
@@ -496,9 +499,9 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
             slope = dhdx + dzdx[j]
             
             # Separate flux calculation for deformation and sliding
-            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
-            flux_s = rho_g_k * slope**k * fs * h_ave**k
-            Qp[0] = -(flux_d + flux_s)
+            flux_d = -fd * rho_g_n * h_ave**(n+2) * abs(slope)**(n-1) * slope
+            flux_s = -fs * rho_g_k * h_ave**k * abs(slope)**(k-1) * slope
+            Qp[0] = flux_d + flux_s
 
             # Qm[0] = 0  # flux at minus half grid point
             dhdt[0] = b[0] - Qp[0] / delx - (Qp[0] + Qm[0]) / (2 * w[0]) * dwdx[0]
@@ -508,33 +511,33 @@ def space_loop(h, b, x, rho, g, nxs, delx, dzbdx, fd, fs, dwdx, w, delt, min_thi
             dhdx = (h[j] - h[j-1]) / delx
             slope = dhdx + dzdx[j - 1]
             
-            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
-            flux_s = rho_g_k * slope**k * fs * h_ave**k
-            Qm[j] = -(flux_d + flux_s)
+            flux_d = -fd * rho_g_n * h_ave**(n+2) * abs(slope)**(n-1) * slope
+            flux_s = -fs * rho_g_k * h_ave**k * abs(slope)**(k-1) * slope
+            Qm[j] = flux_d + flux_s
 
             dhdt[j] = b[j] + Qm[j] / delx - (Qp[j] + Qm[j]) / (2 * w[j]) * dwdx[j]
         elif (h[j] <= min_thick) & (h[j - 1] <= min_thick):  # beyond glacier toe - no glacier flux
             dhdt[j] = b[j]
-            # Qp[j] = 0
-            # Qm[j] = 0
+            Qp[j] = 0
+            Qm[j] = 0
         else:  # within the glacier
             # Flux at j + 1/2
             h_ave = (h[j + 1] + h[j]) / 2
             dhdx = (h[j + 1] - h[j]) / delx
             slope = dhdx + dzdx[j]
             
-            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
-            flux_s = rho_g_k * slope**k * fs * h_ave**k
-            Qp[j] = -(flux_d + flux_s)
+            flux_d = -fd * rho_g_n * h_ave**(n+2) * abs(slope)**(n-1) * slope
+            flux_s = -fs * rho_g_k * h_ave**k * abs(slope)**(k-1) * slope
+            Qp[j] = flux_d + flux_s
 
             # Flux at j - 1/2
             h_ave = (h[j - 1] + h[j]) / 2
             dhdx = (h[j] - h[j - 1]) / delx
             slope = dhdx + dzdx[j - 1]
             
-            flux_d = rho_g_n * slope**n * fd * h_ave**(n+2)
-            flux_s = rho_g_k * slope**k * fs * h_ave**k
-            Qm[j] = -(flux_d + flux_s)
+            flux_d = -fd * rho_g_n * h_ave**(n+2) * abs(slope)**(n-1) * slope
+            flux_s = -fs * rho_g_k * h_ave**k * abs(slope)**(k-1) * slope
+            Qm[j] = flux_d + flux_s
 
             dhdt[j] = b[j] - (Qp[j] - Qm[j]) / delx - (Qp[j] + Qm[j]) / (2 * w[j]) * dwdx[j]
     # ----------------------------------------
