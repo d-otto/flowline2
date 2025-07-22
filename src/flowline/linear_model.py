@@ -113,3 +113,30 @@ def _calc_length_change_numba(length_change, K, dt, tau, eps, beta, bt_p):
             )
     
     return length_change
+
+
+def calc_Leq(A, w, bt, db, L=None):
+    """
+    Calculate equilibrium length change for mass balance perturbation.
+    
+    Parameters
+    ----------
+    A : float
+        Glacier area (m²)
+    w : float or array
+        Glacier width (m), will be averaged if array
+    bt : float
+        Terminus mass balance (m/yr)
+    db : float
+        Mass balance change (m/yr)
+    L : float, optional
+        Reference length (m), not used in current implementation
+        
+    Returns
+    -------
+    float
+        Equilibrium length change (m)
+    """
+    if np.ndim(w) != 0:
+        w = np.mean(w)
+    return A / w * -db / bt
