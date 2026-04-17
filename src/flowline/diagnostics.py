@@ -12,11 +12,11 @@ def calc_ela(P0, T0, gamma, mu, h=None):
     Parameters:
     -----------
     P0 : float/array
-        Winter accumulation (mm w.e.)
+        Winter accumulation (m w.e.)
     T0 : float/array  
         Melt-season temperature at sea level (°C)
     gamma : float/array
-        Temperature lapse rate (°C/km)
+        Temperature lapse rate (°C/m)
     mu : float/array
         Melt factor (m/°C/yr)
     h : float/array, optional
@@ -27,20 +27,15 @@ def calc_ela(P0, T0, gamma, mu, h=None):
     ela : float/array
         Equilibrium Line Altitude (m)
     """
-    # Convert gamma from C/km to C/m for calculations
-    gamma_m = gamma / 1000
-    
-    # Convert P0 from mm to m for consistent units with mu
-    P0_m = P0 / 1000
     
     # Adjust temperature for elevation if provided
     if h is not None:
-        T0_adj = T0 - h * gamma_m
+        T_z = T0 - h * gamma
     else:
-        T0_adj = T0
+        T_z = T0
         
     # Calculate ELA (mu is in m/°C/yr, P0_m is in m/yr)
-    ela = T0_adj / gamma_m - P0_m / (mu * gamma_m)
+    ela = T_z / gamma - P0 / (mu * gamma)
     return ela
 
 
@@ -54,11 +49,11 @@ def calc_mass_balance(h, P0, T0, gamma, mu):
     h : float/array
         Elevation (m)
     P0 : float/array
-        Winter accumulation (mm w.e.)
+        Winter accumulation (m w.e.)
     T0 : float/array
         Melt-season temperature at sea level (°C)
     gamma : float/array
-        Temperature lapse rate (°C/km)
+        Temperature lapse rate (°C/m)
     mu : float/array
         Melt factor (m/°C/yr)
         
@@ -67,16 +62,12 @@ def calc_mass_balance(h, P0, T0, gamma, mu):
     mass_balance : float/array
         Annual mass balance (m w.e./yr)
     """
-    gamma_m = gamma / 1000  # Convert C/km to C/m
-    T_h = T0 - h * gamma_m  # Temperature at elevation h
-    
-    # Convert P0 from mm to m for consistent units
-    P0_m = P0 / 1000
+    T_z = T0 - h * gamma  # Temperature at elevation z
     
     # Simple mass balance model: accumulation - melt
     # Melt only occurs when temperature > 0
-    melt = np.maximum(0, mu * T_h)  # mu is in m/°C/yr
-    mass_balance = P0_m - melt  # Both in m w.e./yr
+    melt = np.maximum(0, mu * T_z)  # mu is in m/°C/yr
+    mass_balance = P0 - melt  # Both in m w.e./yr
     
     return mass_balance
 
@@ -164,3 +155,182 @@ def calc_diag(res, t=(None, None)):
     diag.loc['aar', 'mean'] = aar.mean()
     diag.loc['aar', 'std'] = aar.std()
     return diag
+
+
+def log_model_setup(spinup_obj, output_file=None):
+    """
+    Print comprehensive model setup information from FlowlineSpinup object.
+    
+    Parameters
+    ----------
+    spinup_obj : FlowlineSpinup
+        FlowlineSpinup object containing config, geometry, and forcing
+    output_file : str, optional
+        Path to file for writing output. If None, prints to console.
+    """
+    import sys
+    from io import StringIO
+    
+    # Capture output
+    if output_file:
+        output = StringIO()
+        file_handle = open(output_file, 'w')
+    else:
+        output = sys.stdout
+        file_handle = None
+    
+    try:
+        # Header
+        print("=" * 80, file=output)
+        print("FLOWLINE MODEL SETUP SUMMARY", file=output)
+        print("=" * 80, file=output)
+        
+        # Model Configuration
+        print("\n[MODEL CONFIGURATION]", file=output)
+        config = spinup_obj.config
+        print(f"  Physical Parameters:", file=output)
+        print(f"    Ice density (rho):           {config.rho:.1f} kg/m³", file=output)
+        print(f"    Gravity (g):                 {config.g:.2f} m/s²", file=output)
+        print(f"    Deformation parameter (fd):  {config.fd:.2e} Pa⁻³ s⁻¹", file=output)
+        print(f"    Sliding parameter (fs):      {config.fs:.2e} Pa⁻³ s⁻¹ m²", file=output)
+        print(f"    Glen's flow law exponent:    {config.n}", file=output)
+        print(f"    Sliding law exponent:        {config.k}", file=output)
+        
+        print(f"  Numerical Parameters:", file=output)
+        print(f"    Grid spacing (delx):         {config.delx:.1f} m", file=output)
+        print(f"    Time step (delt):            {config.delt:.6f} years", file=output)
+        print(f"    Start time (ts):             {config.ts:.1f} years", file=output)
+        print(f"    End time (tf):               {config.tf:.1f} years", file=output)
+        print(f"    Simulation duration:         {config.tf - config.ts:.1f} years", file=output)
+        print(f"    Minimum terminus thickness:  {config.min_thick:.1f} m", file=output)
+        
+        print(f"  Climate Parameters:", file=output)
+        print(f"    Temperature lapse rate:      {config.gamma:.1e} °C/m", file=output)
+        print(f"    Melt factor (mu):            {config.mu:.3f} m/°C/yr", file=output)
+        print(f"    Height-mass balance feedback: {config.hmb}", file=output)
+        
+        # Geometry Information
+        print("\n[GEOMETRY CONFIGURATION]", file=output)
+        geometry = spinup_obj.geometry
+        print(f"  Domain Characteristics:", file=output)
+        print(f"    Domain extent:               {geometry.x_gr.min():.0f} - {geometry.x_gr.max():.0f} m", file=output)
+        print(f"    Domain length:               {geometry.x_gr.max() - geometry.x_gr.min():.0f} m", file=output)
+        print(f"    High-res geometry points:    {len(geometry.x_gr)}", file=output)
+        
+        print(f"  Bed Elevation Statistics:", file=output)
+        print(f"    Minimum bed elevation:       {geometry.zb_gr.min():.0f} m", file=output)
+        print(f"    Maximum bed elevation:       {geometry.zb_gr.max():.0f} m", file=output)
+        print(f"    Mean bed elevation:          {geometry.zb_gr.mean():.0f} m", file=output)
+        print(f"    Elevation range:             {geometry.zb_gr.max() - geometry.zb_gr.min():.0f} m", file=output)
+        print(f"    Mean bed slope:              {np.gradient(geometry.zb_gr, geometry.x_gr).mean():.4f} m/m", file=output)
+        
+        print(f"  Width Characteristics:", file=output)
+        print(f"    Minimum width:               {geometry.w_geom.min():.0f} m", file=output)
+        print(f"    Maximum width:               {geometry.w_geom.max():.0f} m", file=output)
+        print(f"    Mean width:                  {geometry.w_geom.mean():.0f} m", file=output)
+        
+        # Check if grid has been set up
+        if hasattr(geometry, 'x') and geometry.x is not None:
+            print(f"  Model Grid (after setup):", file=output)
+            print(f"    Model grid points:           {len(geometry.x)}", file=output)
+            print(f"    Actual grid spacing:         {geometry.x[1] - geometry.x[0]:.1f} m", file=output)
+        
+        # Initial thickness info if available
+        if hasattr(geometry, 'h0') and geometry.h0 is not None:
+            print(f"  Initial Ice Thickness:", file=output)
+            print(f"    Maximum thickness:           {geometry.h0.max():.1f} m", file=output)
+            print(f"    Mean thickness:              {geometry.h0.mean():.1f} m", file=output)
+            print(f"    Initial glacier length:      {(geometry.h0 > 0).sum() * config.delx:.0f} m", file=output)
+        
+        # Forcing Information
+        print("\n[FORCING CONFIGURATION]", file=output)
+        forcing = spinup_obj.forcing
+        forcing_type = type(forcing).__name__
+        print(f"  Forcing Type: {forcing_type}", file=output)
+        
+        if forcing_type == "TemperaturePrecipitationForcing":
+            print(f"  Climate Parameters:", file=output)
+            print(f"    Reference temperature (T0):  {forcing.T0:.2f} °C", file=output)
+            print(f"    Reference precipitation (P0): {forcing.P0:.3f} m w.e./yr", file=output)
+            print(f"    Temperature lapse rate:       {forcing.gamma:.1e} °C/m", file=output)
+            print(f"    Melt factor (mu):             {forcing.mu:.3f} m w.e./°C/yr", file=output)
+            
+            # Calculate estimated ELA
+            try:
+                estimated_ela = calc_ela(forcing.P0, forcing.T0, forcing.gamma, forcing.mu)
+                print(f"    Estimated ELA:                {estimated_ela:.0f} m", file=output)
+            except:
+                print(f"    Estimated ELA:                Could not calculate", file=output)
+            
+            # Time series characteristics
+            if hasattr(forcing, 'Tp') and len(forcing.Tp) > 1:
+                print(f"  Time Series Characteristics:", file=output)
+                print(f"    Temperature variability (std): {forcing.Tp.std():.3f} °C", file=output)
+                print(f"    Precipitation variability (std): {forcing.Pp.std():.3f} m w.e./yr", file=output)
+            
+        elif forcing_type == "DirectMassBalanceForcing":
+            print(f"  Mass Balance Parameters:", file=output)
+            print(f"    Base mass balance (b0):       {forcing.b0:.3f} m/yr", file=output)
+            if forcing.bp is not None:
+                if np.isscalar(forcing.bp):
+                    print(f"    Mass balance anomaly:         {forcing.bp:.3f} m/yr (constant)", file=output)
+                else:
+                    print(f"    Mass balance anomaly:         time series (std: {np.std(forcing.bp):.3f} m/yr)", file=output)
+            
+            if forcing.dbdz is not None:
+                print(f"    Elevation gradient:           Yes (dbdz array length: {len(forcing.dbdz)})", file=output)
+            if forcing.dbdx is not None:
+                print(f"    Distance gradient:            Yes (dbdx array length: {len(forcing.dbdx)})", file=output)
+        
+        # Target Matching Information
+        if spinup_obj.target_matching is not None:
+            print("\n[TARGET MATCHING CONFIGURATION]", file=output)
+            tm = spinup_obj.target_matching
+            
+            if 'targets' in tm:
+                print(f"  Target Values:", file=output)
+                for key, value in tm['targets'].items():
+                    if 'length' in key:
+                        print(f"    {key}:                    {value:.0f} m", file=output)
+                    elif 'thickness' in key:
+                        print(f"    {key}:                 {value:.1f} m", file=output)
+                    elif 'volume' in key:
+                        print(f"    {key}:                   {value:.2e} m³", file=output)
+                    else:
+                        print(f"    {key}:                        {value}", file=output)
+            
+            print(f"  Optimization Settings:", file=output)
+            print(f"    Adjustment parameter:         {tm.get('adjustment_parameter', 'Not specified')}", file=output)
+            print(f"    Cost function:                {tm.get('cost_function', 'length_only')}", file=output)
+            print(f"    Steady-state detector:        {tm.get('steady_state_detector', 'volume_change_rate')}", file=output)
+            print(f"    Tolerance:                    {tm.get('tolerance', 100)}", file=output)
+            print(f"    Parameter bounds:             {tm.get('parameter_bounds', 'Not specified')}", file=output)
+            print(f"    Maximum iterations:           {tm.get('max_iterations', 10)}", file=output)
+            print(f"    Maximum simulation time:      {tm.get('max_simulation_time', 1000)} years", file=output)
+        
+        # Summary
+        print("\n[SUMMARY]", file=output)
+        domain_length = geometry.x_gr.max() - geometry.x_gr.min()
+        if forcing_type == "TemperaturePrecipitationForcing":
+            try:
+                ela = calc_ela(forcing.P0, forcing.T0, forcing.gamma, forcing.mu)
+                ela_position = (ela - geometry.zb_gr.min()) / (geometry.zb_gr.max() - geometry.zb_gr.min())
+                print(f"  ELA relative position in domain: {ela_position:.2f} (0=bottom, 1=top)", file=output)
+            except:
+                pass
+        
+        total_time_steps = int((config.tf - config.ts) / config.delt)
+        print(f"  Total time steps in simulation:  {total_time_steps:,}", file=output)
+        if hasattr(geometry, 'x') and geometry.x is not None:
+            print(f"  Total grid points:               {len(geometry.x)}", file=output)
+            print(f"  Computational cost estimate:     {total_time_steps * len(geometry.x):,} grid-point-steps", file=output)
+        
+        print("=" * 80, file=output)
+        
+        # Write to file if requested
+        if output_file and file_handle:
+            file_handle.write(output.getvalue())
+            
+    finally:
+        if file_handle:
+            file_handle.close()

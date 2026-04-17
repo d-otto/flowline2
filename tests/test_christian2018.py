@@ -15,8 +15,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 # Import your flowline module
-import sys
-sys.path.append('src')
 from flowline.flowline2d import (
     flowline2d, FlowlineConfig, FlowlineGeometry, 
     TemperaturePrecipitationForcing, DirectMassBalanceForcing
@@ -138,6 +136,41 @@ class TestChristianGlacier1:
             
             assert abs(response_time - params['expected_response_time']) / params['expected_response_time'] < 0.4, \
                 f"Response time error: {abs(response_time - params['expected_response_time']):.1f} years"
+    
+    def _run_christian_steady_state(self, params):
+        """Helper method to run steady-state simulation and return result."""
+        # Configuration for steady-state run
+        config = FlowlineConfig(
+            delx=25,  # 25m grid spacing (from paper)
+            delt=0.0125/32,  # Small timestep for stability
+            ts=0,
+            tf=500,  # Run for 500 years to reach steady state
+            deltout=1,  # Output every 10 years
+        )
+        
+        # Create geometry
+        x_gr, zb_gr, w_geom = self.create_christian_glacier1_geometry(params)
+        
+        # Initial thickness - triangular profile
+        initial_length = 5000  # Start with 5 km glacier
+        h_init = np.maximum(0, 100 * (1 - x_gr / initial_length))
+        
+        # Create geometry object
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        
+        # Temperature-precipitation forcing
+        forcing = TemperaturePrecipitationForcing(
+            T0=params['T0'],
+            P0=params['P0'],
+            gamma=params['gamma'],
+            mu=params['mu'],
+            ts=config.ts,
+            tf=config.tf
+        )
+        
+        # Run model
+        model = flowline2d(config=config, geometry=geometry, forcing=forcing)
+        result = model.run()
         
         return result
     
@@ -145,8 +178,8 @@ class TestChristianGlacier1:
         """Test glacier response to gradual warming as in Christian et al."""
         params = christian_glacier1_params
         
-        # First get steady-state
-        steady_result = self.test_christian_glacier1_steady_state(params)
+        # First get steady-state using helper method
+        steady_result = self._run_christian_steady_state(params)
         
         # Configuration for warming experiment
         warming_config = FlowlineConfig(
@@ -218,8 +251,6 @@ class TestChristianGlacier1:
         expected_equilibration = 0.75
         assert abs(fractional_equilibration - expected_equilibration) < 0.2, \
             f"Equilibration error: {fractional_equilibration:.2f} vs expected {expected_equilibration:.2f}"
-        
-        return result
     
     def _create_christian_comparison_figure(self, result, params, filename):
         """Create QC figure comparing with Christian et al. results"""

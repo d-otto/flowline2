@@ -317,16 +317,9 @@ class flowline2d:
         # Check if we should evaluate for steady state (based on response time)
         if hasattr(self, 'last_evaluation_time'):
             time_since_last_eval = current_time - self.last_evaluation_time
-            
-            # Calculate response time using current state
-            from flowline.spinup import calculate_response_time
-            # Find ELA (assumed to be where mass balance is zero)
-            ela_idx = np.argmin(np.abs(b)) if len(b) > 0 else 0
-            
             try:
-                tau = calculate_response_time(h, b, self.config.delx, edge_idx, ela_idx)
                 # Only evaluate every tau years
-                if time_since_last_eval < tau:
+                if time_since_last_eval < self.tau_history[-1]:
                     return
             except ValueError:
                 # Glacier is completely melted - consider it immediately at steady state

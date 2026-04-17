@@ -20,6 +20,9 @@ dependencies = [
     "numba",
     "pyyaml",
     "seaborn",
+    "pyqt6>=6.7.1",
+    "ipykernel>=6.29.5",
+    "bokeh>=3.1.1",
 ]
 
 [build-system]

@@ -12,11 +12,6 @@ This script demonstrates:
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-import sys
-
-# Add src directory to path to allow direct script execution
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(ROOT_DIR))
 
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing, flowline2d)
 from flowline.geometry import (FlowlineGeometry, create_uniform_slope,

@@ -1,41 +1,82 @@
-import subprocess
-import sys
-from pathlib import Path
 import xarray as xr
 import pytest
 
+from flowline.sweep import FlowlineSweep
+from flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
+from flowline.geometry import FlowlineGeometry, create_uniform_slope
+
 def test_sweep_integration(tmp_path):
     """
-    An integration test that runs a small sweep and checks the output.
+    Integration test that runs a small sweep using modern object-oriented approach.
     """
-    # 1. Setup paths relative to this test file
-    project_root = Path(__file__).parent.parent
-    test_config_path = project_root / "tests/test_sweep_config.yml"
     output_dir = tmp_path / "test_sweep_output"
-    # The entry point is now a module within the `cli` package
-    cli_script_module = "cli.run_sweep"
+    output_dir.mkdir(exist_ok=True)
 
-    # 2. Run the sweep as a subprocess using the new click-based CLI
-    cmd = [
-        sys.executable, "-m", cli_script_module,
-        str(test_config_path),
-        "--output-dir", str(output_dir),
-        "--workers", "2"
-    ]
+    # Create base objects using modern approach
+    base_config = FlowlineConfig(
+        ts=0,
+        tf=10,  # Short run time for testing
+        delx=100,  # Coarser grid for speed
+        delt=0.0125/2,  # Larger time step
+        deltout=5.0,
+        min_thick=1.0,
+        mu=0.65
+    )
     
-    # Running from project root; pytest is configured with pythonpath="src"
-    # so the `cli` module should be found.
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=project_root)
+    # Create geometry
+    x_gr, zb_gr, w_geom = create_uniform_slope(
+        bed_characteristic_length=10000,
+        domain_extent=12000,
+        x_gr_points=61,
+        width=1000,
+        elevation_drop=1000
+    )
     
-    if result.returncode != 0:
-        print("STDOUT:", result.stdout, file=sys.stdout)
-        print("STDERR:", result.stderr, file=sys.stderr)
-        pytest.fail(f"CLI script failed with exit code {result.returncode}", pytrace=False)
+    # Create reasonable initial ice thickness profile
+    scale = 100
+    length = 5000
+    h_init = [(scale * (1 - x / length)) if x < length else 0 for x in x_gr]
+    h_init = [max(0, h) for h in h_init]
+    
+    base_geometry = FlowlineGeometry(
+        x_gr=x_gr,
+        zb_gr=zb_gr, 
+        w_geom=w_geom,
+        x_init=x_gr,
+        h_init=h_init
+    )
+    
+    # Create forcing
+    base_forcing = TemperaturePrecipitationForcing(
+        ts=0,
+        tf=10,
+        T0=8.0,
+        P0=2.0,
+        gamma=6.5e-3,
+        mu=0.65
+    )
+    
+    # Define sweep parameters - same as in test_sweep_config.yml
+    sweep_parameters = {
+        'config.mu': [0.65, 0.70]  # 2 runs
+    }
+    
+    # Run the sweep
+    sweep = FlowlineSweep(
+        base_config=base_config,
+        base_geometry=base_geometry,
+        base_forcing=base_forcing,
+        sweep_parameters=sweep_parameters,
+        output_dir=str(output_dir),
+        workers=2
+    )
+    
+    sweep.run()
 
-    # 3. Check outputs
+    # Check outputs
     assert output_dir.exists()
     
-    # The config has 2 runs in it.
+    # The sweep has 2 runs in it
     run_files = list(output_dir.glob("run_*.nc"))
     assert len(run_files) == 2, f"Expected 2 individual run output files, but found {len(run_files)}"
     
@@ -55,6 +96,5 @@ def test_sweep_integration(tmp_path):
         assert ds['h'].shape[0] == 2
     
     # Check for run info files
-    assert (output_dir / "config.yml").exists()
     assert (output_dir / "run_info.txt").exists()
     assert (output_dir / "requirements.txt").exists()

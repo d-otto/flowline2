@@ -15,13 +15,8 @@ This script demonstrates:
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-import sys
 import json
 from dataclasses import asdict
-
-# Add src directory to path to allow direct script execution
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(ROOT_DIR))
 
 # --- Import Flowline Components ---
 from flowline.flowline2d import (FlowlineConfig, TemperaturePrecipitationForcing, flowline2d)

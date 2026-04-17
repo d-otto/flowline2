@@ -17,20 +17,15 @@ across different bed geometries, ensuring fair comparison of sensitivity to warm
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
-import sys
 import xarray as xr
 
-# Add src directory to path to allow direct script execution
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(ROOT_DIR))
-
-from src.flowline.sweep import FlowlineSweep
-from src.flowline.cli.utils import parse_sweep_cli_args
-from src.flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
-from src.flowline.geometry import FlowlineGeometry, create_uniform_slope
-from src.flowline.spinup import FlowlineSpinup, LengthOnlyCost, VolumeChangeRateDetector
-from src.flowline.diagnostics import calc_ela
-from src.flowline.visualization import plot_glacier_profile, plot_fractional_volume_timeseries, plot_volume_length_timeseries
+from flowline.sweep import FlowlineSweep
+from flowline.cli.utils import parse_sweep_cli_args
+from flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
+from flowline.geometry import FlowlineGeometry, create_uniform_slope
+from flowline.spinup import FlowlineSpinup, LengthOnlyCost, VolumeChangeRateDetector
+from flowline.diagnostics import calc_ela
+from flowline.visualization import plot_glacier_profile, plot_fractional_volume_timeseries, plot_volume_length_timeseries
 from scipy.interpolate import splrep, splev
 
 def create_matched_convex_bed(x_gr_flat, zb_gr_flat, convexity_amplitude=200):
@@ -237,7 +232,7 @@ def main():
             spinup_objects=spinup_objects,
             experimental_perturbations=experimental_perturbations,
             output_dir=str(bed_output_dir),
-            workers=args.workers if hasattr(args, 'workers') else 4
+            workers=args.workers if hasattr(args, 'workers') else 8
         )
         sweep.run()
         results[bed_name] = bed_output_dir / "combined_results.nc"

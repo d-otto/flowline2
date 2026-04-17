@@ -12,20 +12,15 @@ This demonstrates capabilities that were impossible with YAML configs.
 """
 
 from pathlib import Path
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 
-# Add src directory to path to allow direct script execution
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(ROOT_DIR))
-
-from src.flowline.sweep import FlowlineSweep
-from src.flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
-from src.flowline.flowline2d import FlowlineConfig, DirectMassBalanceForcing
-from src.flowline.geometry import FlowlineGeometry
-import src.flowline.geometry as geometry_module
+from flowline.sweep import FlowlineSweep
+from flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
+from flowline.flowline2d import FlowlineConfig, DirectMassBalanceForcing
+from flowline.geometry import FlowlineGeometry
+import flowline.geometry as geometry_module
 
 def create_bed_geometry(curvature=0, L=12000, base_slope=0.1):
     """

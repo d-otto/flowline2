@@ -28,8 +28,6 @@ import matplotlib.gridspec as gridspec
 import copy
 
 # Import the module under test
-import sys
-sys.path.append('src')
 from flowline.flowline2d import (
     flowline2d, FlowlineConfig,
     TemperaturePrecipitationForcing, DirectMassBalanceForcing,
@@ -40,6 +38,7 @@ from flowline.geometry import (
     create_uniform_slope, create_concave_profile,
     create_variable_width, create_convex_profile
 )
+from flowline.linear_model import LinearModel
 
 # --- Standalone Geometry Creation Functions ---
 # These can be called by the parameter sweep script.
@@ -107,6 +106,13 @@ def ss_result_uniform():
     result_ss = model_ss.run()
     
     ds = result_ss.to_xarray()
+    
+    # Add forcing parameters as attributes for use in other tests
+    ds.attrs['T0'] = GLACIER_PARAMS['T0']
+    ds.attrs['P0'] = GLACIER_PARAMS['P0']
+    ds.attrs['gamma'] = GLACIER_PARAMS['gamma']
+    ds.attrs['mu'] = GLACIER_PARAMS['mu']
+    
     ds.to_netcdf(cache_path)
     print(f"Cached new steady-state profile to {cache_path}")
 
@@ -1521,62 +1527,282 @@ class TestSteadyStateValidation:
         pytest.skip("Mass balance gradient steady-state validation not yet implemented")
 
 
-def create_qc_figure_index():
-    """Create an HTML index of all QC figures"""
-    html_content = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Flowline2D Test QC Figures</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            .figure { margin: 20px 0; padding: 20px; border: 1px solid #ddd; }
-            .figure img { max-width: 100%; height: auto; }
-            .figure h3 { margin-top: 0; color: #333; }
-        </style>
-    </head>
-    <body>
-        <h1>Flowline2D Integration Test QC Figures</h1>
-        <p>Generated on: {date}</p>
-    """.format(date=pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'))
+class TestFlowlineLinearModelComparison:
+    """Test validation of flowline model against linear model predictions"""
     
-    # List of expected QC figures
-    qc_figures = [
-        ('steady_state_convergence.png', 'Steady State Convergence Test'),
-        ('step_change_symmetry.png', 'Step Change Symmetry Test'),
-        ('white_noise_response.png', 'White Noise Response Test'),
-        ('linear_trend_response.png', 'Linear Trend Response Test'),
-        ('grid_resolution_sensitivity.png', 'Grid Resolution Sensitivity Test'),
-        ('timestep_sensitivity.png', 'Time Step Sensitivity Test'),
-        ('mass_conservation.png', 'Mass Conservation Test'),
-        ('pdd_temperature_forcing.png', 'PDD Temperature Forcing Test'),
-        ('profile_export_import.png', 'Profile Export/Import Test'),
-    ]
+    def test_flowline_vs_linear_model_warming_response(self):
+        """
+        Test that flowline model equilibrium response to warming matches linear model.
+        
+        1. Spin up flowline model to steady-state
+        2. Extract parameters for linear model
+        3. Apply 0.5°C warming to both models
+        4. Compare final glacier lengths
+        """
+        # ========== STEP 1: Setup and spin up flowline model to steady-state ==========
+        
+        # Simple uniform slope geometry
+        x_gr, zb_gr, w_geom = create_uniform_slope(
+            domain_extent=10000,          # 10 km domain
+            x_gr_points=101,              # 100m resolution
+            elevation_drop=1500,          # 1500m elevation drop
+            width=1000,                   # 1 km width
+            bed_characteristic_length=10000  # Bed extends 15km (longer than domain)
+        )
+        
+        # Initial triangular thickness profile
+        h_init = np.maximum(0, 150 * (1 - x_gr / 8000))  # Start with ~6km glacier
+        
+        # Configuration for steady-state spinup
+        config = FlowlineConfig(
+            delx=25,           # Match x_gr spacing
+            delt=0.0125/16,          # Small timestep for stability  
+            ts=0,
+            tf=500,             # Run 300 years to steady state
+            deltout=1          # Output every 10 years
+        )
+        
+        # Create geometry object
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        
+        # Temperature-precipitation forcing for steady state
+        forcing_ss = TemperaturePrecipitationForcing(
+            T0=8.0,             # 8°C temperature at sea level
+            P0=2.0,             # 2 m/yr precipitation 
+            gamma=6.5e-3,       # Standard lapse rate
+            mu=0.6,             # Melt factor (m/yr/°C)
+            ts=config.ts,
+            tf=config.tf
+        )
+        
+        # Run steady-state model
+        model_ss = flowline2d(config=config, geometry=geometry, forcing=forcing_ss)
+        result_ss = model_ss.run()
+        
+        # ========== STEP 2: Extract parameters for linear model ==========
+        
+        # Get steady-state glacier characteristics
+        final_length = result_ss.edge[-1]
+        final_edge_idx = result_ss.edge_idx[-1]
+        
+        # Skip test if no ice remains
+        if final_edge_idx <= 1:
+            pytest.skip("No steady-state glacier found - adjust parameters")
+        
+        # Calculate mean thickness near terminus (last 20% of glacier)
+        start_idx = max(0, int(final_edge_idx * 0.8))
+        H = np.mean(result_ss.h[-1, start_idx:final_edge_idx])
+        
+        # Get terminus mass balance for response time calculation  
+        terminus_elevation = result_ss.zb[final_edge_idx-1]
+        terminus_temp = forcing_ss.T0 - forcing_ss.gamma * terminus_elevation
+        terminus_balance = forcing_ss.P0 - forcing_ss.mu * terminus_temp
+        
+        # Calculate response time
+        tau = H / abs(terminus_balance)
+        
+        # Create linear model with extracted parameters
+        linear_model = LinearModel(L_bar=final_length, H=H, tau=tau, dt=1.0)
+        
+        print(f"Steady-state parameters:")
+        print(f"  Length: {final_length/1000:.2f} km")
+        print(f"  Mean thickness: {H:.1f} m")
+        print(f"  Response time: {tau:.1f} years")
+        print(f"  Terminus balance: {terminus_balance:.2f} m/yr")
+        
+        # ========== STEP 3: Apply 0.5°C warming to both models ==========
+        
+        # Linear model prediction
+        warming = 0.5  # °C
+        mass_balance_change = -forcing_ss.mu * warming  # -0.3 m/yr for mu=0.6
+        linear_length_change = linear_model.steady_state_length_change(mass_balance_change)
+        linear_final_length = final_length + linear_length_change
+        
+        print(f"Linear model prediction:")
+        print(f"  Mass balance change: {mass_balance_change:.2f} m/yr")
+        print(f"  Length change: {linear_length_change/1000:.2f} km")
+        print(f"  Final length: {linear_final_length/1000:.2f} km")
+        
+        # Warmed forcing
+        forcing_warm = TemperaturePrecipitationForcing(
+            T0=forcing_ss.T0 + warming,  # Add 0.5°C warming
+            P0=forcing_ss.P0,
+            gamma=forcing_ss.gamma,
+            mu=forcing_ss.mu,
+            ts=config.ts,
+            tf=config.tf
+        )
+        
+        # Start from steady-state profile
+        geometry_warm = FlowlineGeometry(
+            x_gr, zb_gr, w_geom, 
+            profile=result_ss
+        )
+        
+        # Run warmed model
+        model_warm = flowline2d(config=config, geometry=geometry_warm, forcing=forcing_warm)
+        result_warm = model_warm.run()
+        
+        flowline_final_length = result_warm.edge[-1]
+        
+        print(f"Flowline model result:")
+        print(f"  Final length: {flowline_final_length/1000:.2f} km")
+        
+        # ========== STEP 4: Compare results ==========
+        
+        # Calculate relative error
+        length_error = abs(flowline_final_length - linear_final_length)
+        relative_error = length_error / final_length
+        
+        print(f"Comparison:")
+        print(f"  Length difference: {length_error/1000:.2f} km")
+        print(f"  Relative error: {relative_error*100:.1f}%")
+        
+        # Create QC figure
+        self._create_comparison_figure(result_ss, result_warm, linear_model, 
+                                     mass_balance_change, warming)
+        
+        # Assertion: models should agree within 10%
+        assert relative_error < 0.10, (
+            f"Flowline and linear models disagree by {relative_error*100:.1f}%: "
+            f"flowline={flowline_final_length/1000:.2f} km, "
+            f"linear={linear_final_length/1000:.2f} km"
+        )
+        
+        # Additional checks
+        assert flowline_final_length > 0, "Flowline glacier should not disappear completely"
+        assert flowline_final_length < final_length, "Glacier should retreat with warming"
     
-    for filename, description in qc_figures:
-        if (QC_FIGURE_DIR / filename).exists():
-            html_content += f"""
-            <div class="figure">
-                <h3>{description}</h3>
-                <img src="{filename}" alt="{description}">
-            </div>
-            """
-    
-    html_content += """
-    </body>
-    </html>
-    """
-    
-    # Write HTML index
-    with open(QC_FIGURE_DIR / 'index.html', 'w') as f:
-        f.write(html_content)
-    
-    print(f"QC figure index created at: {QC_FIGURE_DIR / 'index.html'}")
+    def _create_comparison_figure(self, result_ss, result_warm, linear_model, 
+                                mass_balance_change, warming):
+        """Create QC figure comparing flowline and linear model results"""
+        
+        fig = plt.figure(figsize=(14, 10))
+        gs = gridspec.GridSpec(2, 3, figure=fig)
+        
+        # Plot 1: Steady-state profile
+        ax1 = fig.add_subplot(gs[0, 0])
+        edge_idx = result_ss.edge_idx[-1]
+        if edge_idx > 0:
+            ax1.fill_between(result_ss.x[:edge_idx]/1000, result_ss.zb[:edge_idx],
+                           result_ss.zb[:edge_idx] + result_ss.h[-1, :edge_idx],
+                           alpha=0.7, color='lightblue', label='Steady-state ice')
+        ax1.plot(result_ss.x/1000, result_ss.zb, 'k-', linewidth=2, label='Bed')
+        ax1.set_xlabel('Distance (km)')
+        ax1.set_ylabel('Elevation (m)')
+        ax1.set_title('Steady-State Profile')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot 2: Length evolution comparison
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax2.plot(result_ss.t, result_ss.edge/1000, 'b-', linewidth=2, label='Steady-state spinup')
+        ax2.plot(result_warm.t, result_warm.edge/1000, 'r-', linewidth=2, label='With 0.5°C warming')
+        
+        # Add linear model prediction
+        linear_change = linear_model.steady_state_length_change(mass_balance_change)
+        linear_final = (result_ss.edge[-1] + linear_change) / 1000
+        ax2.axhline(y=linear_final, color='orange', linestyle='--', linewidth=2, 
+                   label=f'Linear model prediction ({linear_final:.2f} km)')
+        
+        ax2.set_xlabel('Time (years)')
+        ax2.set_ylabel('Glacier Length (km)')
+        ax2.set_title('Length Evolution')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+        
+        # Plot 3: Final comparison
+        ax3 = fig.add_subplot(gs[0, 2])
+        steady_length = result_ss.edge[-1] / 1000
+        flowline_length = result_warm.edge[-1] / 1000
+        
+        lengths = [steady_length, flowline_length, linear_final]
+        labels = ['Steady-state', 'Flowline\n+0.5°C', 'Linear model\n+0.5°C']
+        colors = ['blue', 'red', 'orange']
+        
+        bars = ax3.bar(labels, lengths, color=colors, alpha=0.7)
+        ax3.set_ylabel('Glacier Length (km)')
+        ax3.set_title('Length Comparison')
+        ax3.grid(True, alpha=0.3)
+        
+        # Add values on bars
+        for bar, length in zip(bars, lengths):
+            ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
+                    f'{length:.2f}', ha='center', va='bottom')
+        
+        # Plot 4: Profile comparison (bottom left)
+        ax4 = fig.add_subplot(gs[1, 0])
+        edge_idx_ss = result_ss.edge_idx[-1]
+        edge_idx_warm = result_warm.edge_idx[-1]
+        
+        if edge_idx_ss > 0:
+            ax4.fill_between(result_ss.x[:edge_idx_ss]/1000, result_ss.zb[:edge_idx_ss],
+                           result_ss.zb[:edge_idx_ss] + result_ss.h[-1, :edge_idx_ss],
+                           alpha=0.5, color='blue', label='Steady-state')
+        if edge_idx_warm > 0:
+            ax4.fill_between(result_warm.x[:edge_idx_warm]/1000, result_warm.zb[:edge_idx_warm],
+                           result_warm.zb[:edge_idx_warm] + result_warm.h[-1, :edge_idx_warm],
+                           alpha=0.5, color='red', label='After warming')
+        
+        ax4.plot(result_ss.x/1000, result_ss.zb, 'k-', linewidth=2, label='Bed')
+        ax4.set_xlabel('Distance (km)')
+        ax4.set_ylabel('Elevation (m)')
+        ax4.set_title('Profile Comparison')
+        ax4.legend()
+        ax4.grid(True, alpha=0.3)
+        
+        # Plot 5: Error analysis (bottom middle)
+        ax5 = fig.add_subplot(gs[1, 1])
+        length_diff = abs(flowline_length - linear_final)
+        relative_error = length_diff / steady_length * 100
+        
+        ax5.bar(['Length\nDifference'], [length_diff], color='gray', alpha=0.7)
+        ax5.set_ylabel('Difference (km)')
+        ax5.set_title(f'Model Difference\n({relative_error:.1f}% relative error)')
+        ax5.grid(True, alpha=0.3)
+        
+        # Add text with error
+        ax5.text(0, length_diff + 0.05, f'{length_diff:.2f} km\n({relative_error:.1f}%)', 
+                ha='center', va='bottom')
+        
+        # Plot 6: Summary statistics (bottom right)
+        ax6 = fig.add_subplot(gs[1, 2])
+        ax6.axis('off')
+        
+        # Summary text
+        summary_text = f"""
+        Model Validation Summary:
+        
+        Steady-state length: {steady_length:.2f} km
+        
+        0.5°C warming response:
+        • Flowline model: {flowline_length:.2f} km
+        • Linear model: {linear_final:.2f} km
+        • Difference: {length_diff:.2f} km
+        • Relative error: {relative_error:.1f}%
+        
+        Mass balance change: {mass_balance_change:.2f} m/yr
+        
+        Validation: {'PASSED' if relative_error < 10 else 'FAILED'}
+        (Tolerance: <10% difference)
+        """
+        
+        ax6.text(0.05, 0.95, summary_text, transform=ax6.transAxes, 
+                fontsize=10, verticalalignment='top', fontfamily='monospace')
+        
+        plt.suptitle(f'Flowline vs Linear Model Validation Test\n0.5°C Warming Response', 
+                    fontsize=14, fontweight='bold')
+        plt.tight_layout()
+        
+        # Save figure
+        filename = 'flowline_linear_model_comparison.png'
+        plt.savefig(QC_FIGURE_DIR / filename, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        
+        print(f"QC figure saved: {QC_FIGURE_DIR / filename}")
+
 
 
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v"])
-    
-    # Create QC figure index after tests complete
-    create_qc_figure_index()

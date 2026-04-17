@@ -6,7 +6,9 @@ import glob
 
 # Discover all example run scripts.
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent / 'examples'
-example_scripts = sorted([Path(p) for p in glob.glob(str(EXAMPLE_DIR / '*/run.py'))])
+# run.py scripts are collected before plot.py scripts by sorting in reverse alphabetical
+# order ('r' > 'p'), ensuring the sweep runs before the visualization in each example.
+example_scripts = sorted([Path(p) for p in glob.glob(str(EXAMPLE_DIR / '*/run.py')) + glob.glob(str(EXAMPLE_DIR / '*/plot.py'))], reverse=True)
 
 # Create readable IDs for the tests from their parent directory names.
 ids = [p.relative_to(EXAMPLE_DIR).parent.name for p in example_scripts]

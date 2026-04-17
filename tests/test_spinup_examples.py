@@ -16,8 +16,6 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import sys
-sys.path.append('src')
 from flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
 from flowline.geometry import FlowlineGeometry, create_uniform_slope
 from flowline.sweep import FlowlineSweep

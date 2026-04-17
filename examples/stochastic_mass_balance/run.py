@@ -12,20 +12,15 @@ This demonstrates the full power of Python configuration for complex parameter g
 """
 
 from pathlib import Path
-import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats, signal
 
-# Add src directory to path to allow direct script execution
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(ROOT_DIR))
-
-from src.flowline.sweep import FlowlineSweep
-from src.flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
-from src.flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
-from src.flowline.geometry import FlowlineGeometry
-import src.flowline.geometry as geometry_module
+from flowline.sweep import FlowlineSweep
+from flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
+from flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
+from flowline.geometry import FlowlineGeometry
+import flowline.geometry as geometry_module
 
 def generate_temperature_noise(ts, tf, std_dev, rng):
     """

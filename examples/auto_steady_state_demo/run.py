@@ -13,22 +13,17 @@ Example scenario:
 """
 
 from pathlib import Path
-import sys
 import numpy as np
 import xarray as xr
 import matplotlib.pyplot as plt
 import json
 
-# Add src directory to path to allow direct script execution
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-sys.path.append(str(ROOT_DIR))
-
-from src.flowline.sweep import FlowlineSweep
-from src.flowline.spinup import FlowlineSpinup
-from src.flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
-from src.flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
-from src.flowline.geometry import FlowlineGeometry
-import src.flowline.geometry as geometry_module
+from flowline.sweep import FlowlineSweep
+from flowline.spinup import FlowlineSpinup
+from flowline.cli.utils import parse_sweep_cli_args, get_sweep_cli_kwargs
+from flowline.flowline2d import FlowlineConfig, TemperaturePrecipitationForcing
+from flowline.geometry import FlowlineGeometry
+import flowline.geometry as geometry_module
 
 def main():
     # Parse command line arguments
@@ -198,30 +193,11 @@ def main():
         if 'run_id' in ds.dims:
             # Extract from preserved run parameters data variables
             melt_factors_used = []
-            for i, run_id in enumerate(ds.coords['run_id'].values):
-                run_param_var = f'run_parameters_{run_id}'
-                if run_param_var in ds.data_vars:
-                    # Get the parameters from the data variable
-                    params_str = ds[run_param_var].values
-                    # Handle different array structures correctly
-                    if params_str.ndim == 0:
-                        val = params_str.item()
-                    elif params_str.size == 1:
-                        val = params_str.flat[0]
-                    else:
-                        # Get the value for this specific run_id index
-                        val = params_str[i] if len(params_str) > i else params_str.flatten()[0]
-                    
+            for run_id in ds.coords['run_id'].values:
+                if 'run_parameters' in ds.data_vars:
+                    val = ds['run_parameters'].sel(run_id=run_id).item()
                     params = json.loads(val)
-                    mu_value = params['forcing']['mu']
-                    melt_factors_used.append(mu_value)
-                else:
-                    # Fallback to attrs if data variable not available
-                    run_ds = ds.sel(run_id=run_id)
-                    if 'run_parameters' in run_ds.attrs:
-                        params = json.loads(run_ds.attrs['run_parameters'])
-                        mu_value = params['forcing']['mu']
-                        melt_factors_used.append(mu_value)
+                    melt_factors_used.append(params['forcing']['mu'])
         
         # Initial vs final states comparison
         if 'edge' in ds.data_vars:
