@@ -42,21 +42,18 @@ def _create_model_from_params(run_params):
     geom_func_params = geometry_p.get('parameters', {})
     x_gr, zb_gr, w_geom = geom_func(**geom_func_params)
     
-    x_init = x_gr
     h_init_params = geometry_p.get('h_init_params')
     profile_path = geometry_p.get('profile')
 
-    if h_init_params:
+    if profile_path is not None:
+        geometry = FlowlineGeometry.from_profile(profile_path, x_gr, zb_gr, w_geom)
+    elif h_init_params:
         scale = h_init_params.get('scale', 100)
         length = h_init_params.get('length', 5000)
         h_init = np.maximum(0, scale * (1 - x_gr / length))
-    elif profile_path is None:
-        # If no profile and no h_init params, default to starting with zero ice.
-        h_init = np.zeros_like(x_gr)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
     else:
-        h_init = None
-    
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_init, h_init=h_init, profile=profile_path)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
     
     forcing_mode = forcing_p.pop('mode', 'TP')
     if forcing_mode == 'TP':
@@ -90,12 +87,8 @@ def run_spinup_simulation(params_tuple):
     try:
         print(f"[{run_id}] Running spinup simulation...")
         
-        # Ensure spinup geometry doesn't use an input profile
         spinup_geometry = copy.deepcopy(geometry)
-        if hasattr(spinup_geometry, 'profile'):
-            print(f"[{run_id}] Removing 'profile' from spinup geometry.")
-            spinup_geometry.profile = None
-        
+
         # Instantiate and run the spinup model
         print(f"[{run_id}] Instantiating spinup model...")
         spinup_model = flowline2d(config=config, geometry=spinup_geometry, forcing=forcing)

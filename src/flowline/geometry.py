@@ -13,18 +13,18 @@ Key Components:
 Example Usage:
     # Create a uniform slope geometry
     x_gr, zb_gr, w_geom = create_uniform_slope(
-        domain_extent=10000, x_gr_points=100, 
-        elevation_drop=2000, width=1000, 
+        domain_extent=10000, x_gr_points=100,
+        elevation_drop=2000, width=1000,
         bed_characteristic_length=8000
     )
-    
-    # Initialize geometry object
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+
+    # Initialize geometry object with zero ice
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
     geometry.setup_grid(delx=25)
 """
 
 import logging
-import dill
+import xarray as xr
 from typing import Optional, Tuple, Union, Any, List, Callable
 import numpy as np
 from scipy.interpolate import interp1d, splrep, splev
@@ -41,20 +41,13 @@ class GeometryError(FlowlineModelError):
 class FlowlineGeometry:
     """
     Manages glacier bed geometry, spatial grids, and initial ice thickness profiles.
-    
-    This class handles the interpolation of high-resolution geometry data onto the
-    model grid, calculates spatial gradients, and manages initial ice thickness
-    profiles from various sources (previous runs, external files, or manual specification).
-    
+
     Attributes:
         x_gr (np.ndarray): High-resolution x-coordinates for geometry definition [m]
         zb_gr (np.ndarray): High-resolution bed elevation at x_gr [m]
         w_geom (np.ndarray): High-resolution channel width at x_gr [m]
-        x_init (np.ndarray, optional): X-coordinates for initial thickness profile [m]
-        h_init (np.ndarray, optional): Initial ice thickness at x_init [m]
-        profile (str or object, optional): Path to saved profile file or profile object
-        profile_avg_nyears (float, optional): Years to average for initial profile [years]
-        
+        h0_gr (np.ndarray): Initial ice thickness on the x_gr grid [m]
+
     Grid Attributes (set after setup_grid):
         x (np.ndarray): Model x-coordinates [m]
         nxs (int): Number of grid points
@@ -63,64 +56,52 @@ class FlowlineGeometry:
         dzbdx (np.ndarray): Bed slope (dz/dx) [dimensionless]
         dwdx (np.ndarray): Width gradient (dw/dx) [m/m]
         h0 (np.ndarray): Initial ice thickness on model grid [m]
-    
+
     Example:
-        # Create geometry with uniform slope
+        # Create geometry with uniform slope and zero initial ice
         x_gr, zb_gr, w_geom = create_uniform_slope(10000, 100, 2000, 1000, 8000)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=25)
-        geometry.load_initial_profile()
     """
-    
-    def __init__(self, x_gr: np.ndarray, zb_gr: np.ndarray, w_geom: np.ndarray, 
-                 x_init: Optional[np.ndarray] = None, h_init: Optional[np.ndarray] = None, 
-                 profile: Optional[Union[str, Any]] = None, profile_avg_nyears: Optional[float] = None):
+
+    def __init__(self, x_gr: np.ndarray, zb_gr: np.ndarray, w_geom: np.ndarray,
+                 h0: np.ndarray):
         """
         Initialize FlowlineGeometry with high-resolution geometry data.
-        
+
         Args:
             x_gr: High-resolution x-coordinates for geometry definition [m]
-            zb_gr: High-resolution bed elevation at x_gr [m]  
+            zb_gr: High-resolution bed elevation at x_gr [m]
             w_geom: High-resolution channel width at x_gr [m]
-            x_init: X-coordinates for manual initial thickness specification [m]
-            h_init: Initial ice thickness values at x_init [m]
-            profile: Path to saved profile file or flowline2d object for initial conditions
-            profile_avg_nyears: Number of years to average from end of profile [years]
-        
+            h0: Initial ice thickness on the x_gr grid [m]. Pass np.zeros_like(x_gr)
+                for a zero-ice start. Use FlowlineGeometry.from_profile() to load
+                h0 from a previous run's NetCDF output.
+
         Note:
-            Arrays x_gr, zb_gr, and w_geom must have the same length and be sorted
-            by increasing x_gr values for proper interpolation.
+            Arrays x_gr, zb_gr, w_geom, and h0 must all have the same length and
+            be sorted by increasing x_gr values for proper interpolation.
         """
         self.x_gr = np.array(x_gr)
         self.zb_gr = np.array(zb_gr)
         self.w_geom = np.array(w_geom)
-        self.x_init = x_init
-        self.h_init = h_init
-        self.profile = profile
-        self.profile_avg_nyears = profile_avg_nyears
+        self.h0_gr = np.array(h0)
         
     def setup_grid(self, delx: float) -> None:
         """
         Create uniform model grid and interpolate geometry data onto it.
-        
-        This method creates a uniform spatial grid with spacing delx, interpolates
-        the high-resolution geometry data (bed elevation and width) onto this grid,
-        and calculates spatial gradients needed for the flowline model.
-        
+
         Args:
             delx: Spatial grid spacing [m]. Typically 25-100m for flowline models.
-        
+
         Sets:
             x: Model x-coordinates [m]
             nxs: Number of grid points
             zb: Bed elevation on model grid [m]
-            w: Channel width on model grid [m] 
+            w: Channel width on model grid [m]
             dzbdx: Bed slope (gradient) [dimensionless]
             dwdx: Width gradient [m/m]
-        
-        Raises:
-            GeometryError: If interpolation fails due to grid/geometry mismatch
-        
+            h0: Initial ice thickness on model grid [m]
+
         Note:
             Grid domain is automatically determined from geometry extent and delx.
             Issues warnings for zero bed slopes or positive slopes at glacier head.
@@ -128,93 +109,60 @@ class FlowlineGeometry:
         xmx = np.max(delx * np.floor(self.x_gr / delx))
         self.x = np.arange(0, xmx, delx)
         self.nxs = len(self.x)
-        
+
         # Interpolate bed elevation and width
         zb_interp = interp1d(self.x_gr, self.zb_gr)
         self.zb = zb_interp(self.x)
-        
+
         w_interp = interp1d(self.x_gr, self.w_geom)
         self.w = w_interp(self.x)
-        
+
+        # Interpolate h0 onto model grid
+        h0_interp = interp1d(self.x_gr, self.h0_gr, bounds_error=False, fill_value=0.0)
+        self.h0 = np.maximum(0, h0_interp(self.x))
+
         # Calculate gradients
         self.dzbdx = np.gradient(self.zb, self.x)
         self.dwdx = np.gradient(self.w, self.x)
-        
+
         # Geometry validation
         if any(self.dzbdx == 0):
             logging.warning(f'Bed slope is zero at {(self.dzbdx == 0).argmax()}.')
         if any(self.dzbdx[0:2] > 0):
             logging.warning('The slope of the bed at the top of the glacier is positive. This may cause instabilities.')
-    
-    def load_initial_profile(self) -> Optional[Any]:
+
+    @classmethod
+    def from_profile(cls, path, x_gr, zb_gr, w_geom, avg_nyears=None):
         """
-        Load and interpolate initial ice thickness profile onto model grid.
-        
-        This method loads initial ice thickness from multiple possible sources:
-        1. Saved flowline2d object (from file or passed directly)
-        2. Manual specification via x_init and h_init arrays
-        3. Time-averaged profile from model history
-        
-        Returns:
-            profile_source: The loaded profile object, or None if using manual specification
-        
-        Sets:
-            h0: Initial ice thickness on model grid [m]
-        
-        Raises:
-            GeometryError: If no valid initial profile source is found or interpolation fails
-        
-        Note:
-            If profile_avg_nyears is specified, averages over the final N years of the profile.
-            Automatically handles extrapolation when model grid extends beyond profile domain.
+        Construct a FlowlineGeometry with h0 loaded from a previous run's NetCDF output.
+
+        h is interpolated from the profile's grid directly onto x_gr during construction.
+        The normal setup_grid interpolation (x_gr → model grid) then follows as usual.
+        The profile grid does not need to match x_gr or delx.
+
+        Parameters
+        ----------
+        path : str or Path
+            Path to a NetCDF file produced by a previous flowline2d run.
+        x_gr, zb_gr, w_geom : array
+            High-resolution geometry arrays for the new run.
+        avg_nyears : float, optional
+            If given, average h over the final N years of the profile instead of
+            using only the final timestep.
         """
-        profile_source = None
-        h0, x0 = None, None
-
-        # 1. Try to load profile from a flowline2d object or a file
-        if self.profile:
-            if hasattr(self.profile, 'h') and hasattr(self.profile, 'x'):
-                profile_source = self.profile
+        from pathlib import Path
+        with xr.open_dataset(Path(path)) as ds:
+            if avg_nyears is not None:
+                dt = float(np.diff(ds['time'].values).mean())
+                n = max(1, int(round(avg_nyears / dt)))
+                h0_profile = ds['h'].isel(time=slice(-n, None)).mean(dim='time').values
             else:
-                try:
-                    with open(self.profile, 'rb') as f:
-                        profile_source = dill.load(f)
-                    logging.debug(f"Successfully loaded profile from: {self.profile}")
-                except Exception:
-                    profile_source = None
+                h0_profile = ds['h'].isel(time=-1).values
+            x_profile = ds['x'].values
 
-        # 2. Extract h0 from profile or use h_init
-        if profile_source:
-            x0 = np.array(profile_source.x)
-            if self.profile_avg_nyears and self.profile_avg_nyears > 0 and len(profile_source.t) > 1:
-                dt_out = np.mean(np.diff(profile_source.t))
-                num_steps = int(round(self.profile_avg_nyears / dt_out))
-                num_steps = max(1, num_steps)
-                if num_steps > len(profile_source.t):
-                    logging.warning(f"Cannot average over {self.profile_avg_nyears} years, only {len(profile_source.t)*dt_out:.1f} available. Averaging over entire profile history.")
-                    num_steps = len(profile_source.t)
-                h0 = np.mean(profile_source.h[-num_steps:, :], axis=0)
-            else:
-                h0 = np.array(profile_source.h[-1, :])
-        elif self.x_init is not None and self.h_init is not None:  # In case x_init and h_init are explicitly provided
-            logging.debug("Using provided initial values for geometry.")
-            x0 = self.x_init
-            h0 = self.h_init
-        else:
-            raise GeometryError("No valid initial profile or initial values (x_init, h_init) provided.")
-
-        # 3. Interpolate h0 to the model grid
-        try:
-            if np.any(self.x > x0.max()) or np.any(self.x < x0.min()):
-                logging.warning(
-                    f"Extrapolating h0 to model grid. x0 range: [{x0.min():.0f}, {x0.max():.0f}], x range: [{self.x.min():.0f}, {self.x.max():.0f}]"
-                )
-            h0_interp = interp1d(x0, h0, "linear", bounds_error=False, fill_value="extrapolate")
-            self.h0 = h0_interp(self.x)
-        except ValueError as e:
-            raise GeometryError(f"Error during initial profile interpolation: {e}. x0 shape: {x0.shape}, h0 shape: {h0.shape}")
-
-        return profile_source
+        h0_interp = interp1d(x_profile, h0_profile, bounds_error=False, fill_value=0.0)
+        h0_on_xgr = np.maximum(0, h0_interp(np.asarray(x_gr)))
+        return cls(x_gr, zb_gr, w_geom, h0=h0_on_xgr)
     
     def plot_geometry(self, figsize=(12, 8), show_gradients=False, show_initial_profile=False, 
                      show_plan_view=False):
@@ -243,7 +191,6 @@ class FlowlineGeometry:
             fig, axes = geometry.plot_geometry()
             
             # Comprehensive plot with all features including plan view
-            geometry.load_initial_profile()
             fig, axes = geometry.plot_geometry(
                 figsize=(16, 12), 
                 show_gradients=True, 
@@ -346,7 +293,7 @@ class FlowlineGeometry:
             plot_idx += 1
         elif show_initial_profile and not hasattr(self, 'h0'):
             # Add a note about missing initial profile
-            axes[plot_idx].text(0.5, 0.5, 'Initial profile not loaded\n(call load_initial_profile() first)', 
+            axes[plot_idx].text(0.5, 0.5, 'Initial profile not available\n(h0 not set on model grid yet)',
                                transform=axes[plot_idx].transAxes, ha='center', va='center',
                                fontsize=12, style='italic', bbox=dict(boxstyle='round', facecolor='wheat'))
             axes[plot_idx].set_ylabel('Initial profile')
@@ -612,8 +559,131 @@ def create_variable_width(domain_extent: float, x_gr_points: int, elevation_drop
     return x_gr, zb_gr, w_geom
 
 
-def create_spline_profile(domain_extent: float, x_gr_points: int, 
-                         z_start: float, z_end: float, 
+def create_harmonic_bed(
+    domain_extent: float,
+    x_gr_points: int,
+    elevation_drop: float,
+    bed_characteristic_length: float,
+    bed_perturbation: float,
+    width: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Create a uniform slope bed with a sin^2 perturbation and constant width.
+
+    Bed elevation is:
+        zb(x) = zb_uniform(x) + bed_perturbation * sin(pi * x / bed_characteristic_length)^2
+
+    The perturbation shape sin^2(pi*x/L) is zero at head (x=0) and terminus (x=L),
+    and peaks at the center (x=L/2). Its integral over [0, L] equals L/2, so:
+        bed_perturbation = 2 * target_integral / L
+
+    Positive bed_perturbation produces a convex bed (bump at center).
+    Negative bed_perturbation produces a concave bed (overdeepening at center).
+
+    Args:
+        domain_extent: Total model domain length [m]
+        x_gr_points: Number of high-resolution grid points for geometry definition
+        elevation_drop: Total elevation change from head to terminus [m]
+        bed_characteristic_length: Period of the sin^2 shape and the linear slope length [m]
+        bed_perturbation: Amplitude of bed perturbation [m].
+            Positive = convex (elevated center), negative = concave (overdeepened center).
+        width: Constant channel width [m]
+
+    Returns:
+        tuple: (x_gr, zb_gr, w_geom) arrays for FlowlineGeometry initialization
+
+    Examples:
+        # Convex bed (bump at center)
+        x_gr, zb_gr, w_geom = create_harmonic_bed(
+            domain_extent=12000, x_gr_points=61,
+            elevation_drop=1000, bed_characteristic_length=8000,
+            bed_perturbation=50, width=1250
+        )
+
+        # Concave bed (overdeepening at center)
+        x_gr, zb_gr, w_geom = create_harmonic_bed(
+            domain_extent=12000, x_gr_points=61,
+            elevation_drop=1000, bed_characteristic_length=8000,
+            bed_perturbation=-50, width=1250
+        )
+    """
+    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
+    zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
+    L = bed_characteristic_length
+    zb_gr = zb_gr + bed_perturbation * np.sin(np.pi * x_gr / L) ** 2
+    w_geom = np.full_like(x_gr, float(width))
+    return x_gr, zb_gr, w_geom
+
+
+def create_harmonic_width(
+    domain_extent: float,
+    x_gr_points: int,
+    elevation_drop: float,
+    bed_characteristic_length: float,
+    harmonics: List[Tuple[int, float, float]],
+    offset: float = 0,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Create a uniform slope bed with a cosine harmonic width profile.
+
+    Width is defined as:
+        w(x) = offset + sum_i( R_i * cos(n_i * 2*pi*x / bed_characteristic_length + phi_i) )
+
+    One full cosine period spans bed_characteristic_length. Because each harmonic
+    integrates to zero over a full period, the mean width equals `offset` regardless
+    of the harmonic amplitudes, making it easy to compare shapes with equal cross-
+    sectional area integrals.
+
+    Args:
+        domain_extent: Total model domain length [m]
+        x_gr_points: Number of high-resolution grid points for geometry definition
+        elevation_drop: Total elevation change from head to terminus [m]
+        bed_characteristic_length: Distance over which elevation drops, and the
+            period of the cosine harmonics [m]
+        harmonics: List of (n, R, phi) tuples.
+            n   — harmonic number (1=fundamental, 2=second harmonic, ...)
+            R   — amplitude [m]
+            phi — phase [radians]
+        offset: Constant term added to all width values [m]. With offset=0 and a
+            single harmonic, the width oscillates between -R and +R (centered at 0).
+            Must be large enough that w(x) > 0 everywhere.
+
+    Returns:
+        tuple: (x_gr, zb_gr, w_geom) arrays for FlowlineGeometry initialization
+
+    Raises:
+        ValueError: If any width value is <= 0.
+
+    Examples:
+        # Hourglass: wide at head/terminus (x=0, x=L), narrow at center
+        x_gr, zb_gr, w_geom = create_harmonic_width(
+            domain_extent=12000, x_gr_points=61,
+            elevation_drop=1000, bed_characteristic_length=8000,
+            harmonics=[(1, 750, 0)], offset=1250
+        )
+
+        # Oval: narrow at head/terminus, wide at center
+        x_gr, zb_gr, w_geom = create_harmonic_width(
+            domain_extent=12000, x_gr_points=61,
+            elevation_drop=1000, bed_characteristic_length=8000,
+            harmonics=[(1, 750, np.pi)], offset=1250
+        )
+    """
+    x_gr = np.linspace(0, domain_extent, int(x_gr_points))
+    zb_gr = elevation_drop * (1 - x_gr / bed_characteristic_length)
+    w_geom = np.full_like(x_gr, float(offset))
+    for n, R, phi in harmonics:
+        w_geom = w_geom + R * np.cos(n * 2 * np.pi * x_gr / bed_characteristic_length + phi)
+    if np.any(w_geom <= 0):
+        raise ValueError(
+            f"Width profile has non-positive values (min={w_geom.min():.1f} m). "
+            "Increase offset or reduce amplitude."
+        )
+    return x_gr, zb_gr, w_geom
+
+
+def create_spline_profile(domain_extent: float, x_gr_points: int,
+                         z_start: float, z_end: float,
                          width: Optional[float] = None,
                          width_control_points: Optional[List[Tuple[float, float]]] = None,
                          w_start: Optional[float] = None,

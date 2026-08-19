@@ -19,6 +19,7 @@ import xarray as xr
 from flowline.entrypoints import run_flowline_simulation, run_spinup_simulation
 from flowline.visualization import plot_sweep_qc
 from flowline.spinup import FlowlineSpinup
+from flowline.geometry import FlowlineGeometry
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -360,10 +361,6 @@ class FlowlineSweep:
         """Create spinup geometry by applying base spinup config and custom overrides."""
         spinup_geometry = deepcopy(base_geometry)
 
-        # Remove any existing profile to start from h_init
-        if hasattr(spinup_geometry, "profile"):
-            spinup_geometry.profile = None
-
         # Apply base spinup geometry overrides
         base_overrides = self.spinup_config.get("geometry", {})
         for key, value in base_overrides.items():
@@ -636,7 +633,10 @@ class FlowlineSweep:
 
                 # Apply spinup profile to geometry
                 if run_id in run_profile_mapping:
-                    geometry.profile = run_profile_mapping[run_id]
+                    geometry = FlowlineGeometry.from_profile(
+                        run_profile_mapping[run_id],
+                        geometry.x_gr, geometry.zb_gr, geometry.w_geom
+                    )
 
             elif self.spinup_objects and not isinstance(self.spinup_objects, dict):
                 # Single spinup object case - inherit everything
@@ -646,20 +646,19 @@ class FlowlineSweep:
 
                 # Apply spinup profile to geometry
                 if run_id in run_profile_mapping:
-                    geometry.profile = run_profile_mapping[run_id]
-                    if hasattr(geometry, "h_init"):
-                        geometry.h_init = None
+                    geometry = FlowlineGeometry.from_profile(
+                        run_profile_mapping[run_id],
+                        geometry.x_gr, geometry.zb_gr, geometry.w_geom
+                    )
 
             else:
                 # Legacy path: only handle profile
                 if run_id in run_profile_mapping:
-                    profile_path = run_profile_mapping[run_id]
-
-                    # Apply spinup profile to geometry
                     geometry = deepcopy(geometry)
-                    geometry.profile = profile_path
-                    if hasattr(geometry, "h_init"):
-                        geometry.h_init = None
+                    geometry = FlowlineGeometry.from_profile(
+                        run_profile_mapping[run_id],
+                        geometry.x_gr, geometry.zb_gr, geometry.w_geom
+                    )
 
             # Re-apply sweep parameters on top of inherited spinup state
             if param_combo:

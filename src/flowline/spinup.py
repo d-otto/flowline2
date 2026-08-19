@@ -1167,14 +1167,11 @@ class FlowlineSpinup:
         extended_config.tf = max_time
         extended_config.deltout = 1.0  # Output every year for monitoring
         
-        # Create geometry without existing profile
         optimization_geometry = deepcopy(self.geometry)
         # Verify the copy:
         assert id(optimization_geometry) != id(self.geometry)
         assert id(optimization_geometry.zb_gr) != id(self.geometry.zb_gr)
-        if hasattr(optimization_geometry, 'profile'):
-            optimization_geometry.profile = None
-        
+
         # Create model with optimization hooks
         # Pass self.forcing directly to ensure the updated T0 is used
         model = flowline2d(extended_config, optimization_geometry, self.forcing)
@@ -1451,11 +1448,8 @@ class FlowlineSpinup:
         str
             Path to the generated steady-state profile
         """
-        # Ensure geometry starts from h_init (no existing profile)
         spinup_geometry = deepcopy(self.geometry)
-        if hasattr(spinup_geometry, 'profile'):
-            spinup_geometry.profile = None
-        
+
         # Run the spinup simulation
         result = run_spinup_simulation(
             (spinup_id, self.config, spinup_geometry, self.forcing, output_dir, no_progress)

@@ -41,7 +41,7 @@ from tqdm import tqdm
 from .geometry import FlowlineGeometry
 from .forcing import MassBalanceForcing, TemperaturePrecipitationForcing, DirectMassBalanceForcing
 from .config import FlowlineConfig
-from .utils import FlowlineModelError, GeometryError, NumericalInstabilityError
+from .utils import FlowlineModelError, NumericalInstabilityError
 
 
 class flowline2d:
@@ -68,42 +68,7 @@ class flowline2d:
 
     def _setup_model(self) -> None:
         """Setup model grid, geometry, and output arrays"""
-        from pathlib import Path
-        # Setup geometry and grid
         self.geometry.setup_grid(self.config.delx)
-
-        profile_path_str = getattr(self.geometry, 'profile', None)
-
-        if isinstance(profile_path_str, (str, Path)) and Path(profile_path_str).suffix == '.nc':
-            with xr.open_dataset(profile_path_str) as ds:
-                if not np.allclose(ds['x'].values, self.geometry.x):
-                    raise GeometryError("Spinup profile grid (x) does not match model grid.")
-
-                self.geometry.h0 = ds['h'].isel(time=-1).values
-
-                class SpinupResult:
-                    def __init__(self, ds_):
-                        class Geometry:
-                            pass
-                        self.geometry = Geometry()
-                        # The "raw" geometry for this run is the resampled geometry from the spin-up.
-                        # We use the spin-up's model grid ('x') as the new 'x_gr' to maintain consistency.
-                        self.geometry.x_gr = ds_['x'].values
-                        self.geometry.zb_gr = ds_['zb_gr_resampled'].values
-                        self.geometry.w_geom = ds_['w_geom_resampled'].values
-
-                        # Recreate config from attributes, filtering for valid FlowlineConfig fields
-                        # to avoid issues with __post_init__ double-counting conversions.
-                        spinup_config = FlowlineConfig()
-                        valid_config_keys = FlowlineConfig.__annotations__.keys()
-                        spinup_attrs = {k: v for k, v in ds_.attrs.items() if k in valid_config_keys}
-                        for k, v in spinup_attrs.items():
-                            setattr(spinup_config, k, v)
-                        self.config = spinup_config
-
-                self.spinup_result = SpinupResult(ds)
-        else:
-            self.spinup_result = self.geometry.load_initial_profile()
 
         # Copy geometry attributes for easy access
         self.x = self.geometry.x
@@ -113,16 +78,9 @@ class flowline2d:
         self.dwdx = self.geometry.dwdx
         self.nxs = self.geometry.nxs
         self.h0 = self.geometry.h0
-
-        # Store original geometry grid for posterity
-        if self.spinup_result:
-            self.x_gr = self.spinup_result.geometry.x_gr
-            self.zb_gr = self.spinup_result.geometry.zb_gr
-            self.w_geom = self.spinup_result.geometry.w_geom
-        else:
-            self.x_gr = self.geometry.x_gr
-            self.zb_gr = self.geometry.zb_gr
-            self.w_geom = self.geometry.w_geom
+        self.x_gr = self.geometry.x_gr
+        self.zb_gr = self.geometry.zb_gr
+        self.w_geom = self.geometry.w_geom
 
         # Calculate number of time steps
         self.nts = round(np.floor((self.config.tf - self.config.ts) / self.config.delt))
@@ -454,17 +412,6 @@ class flowline2d:
             attrs=attrs
         )
         
-        # Add spin-up metadata if available
-        if hasattr(self, 'spinup_result') and self.spinup_result is not None:
-            if isinstance(self.spinup_result, flowline2d):
-                spinup_config = asdict(self.spinup_result.config)
-                for k, v in spinup_config.items():
-                    # Avoid overwriting main config attributes
-                    if f'spinup_{k}' not in ds.attrs:
-                         ds.attrs[f'spinup_{k}'] = str(v) # Convert to string for safety
-            elif isinstance(self.spinup_result, str):
-                ds.attrs['spinup_profile_path'] = self.spinup_result
-
         return ds
 
     def copy(self):
