@@ -50,7 +50,7 @@ class TestFlowlineLinearModelValidation:
             elevation_drop=1000, width=1000, bed_characteristic_length=domain_extent
         )
         h_init = np.maximum(0, 150 * (1 - x_gr / 8000))
-        base_geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        base_geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         
         base_forcing = TemperaturePrecipitationForcing(
             T0=8., P0=2.0, gamma=6.5e-3, mu=0.6, ts=base_config.ts, tf=base_config.tf

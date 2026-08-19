@@ -87,7 +87,7 @@ class TestChristianGlacier1:
         h_init = np.maximum(0, 100 * (1 - x_gr / initial_length))
         
         # Create geometry object
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         
         # Temperature-precipitation forcing
         forcing = TemperaturePrecipitationForcing(
@@ -156,7 +156,7 @@ class TestChristianGlacier1:
         h_init = np.maximum(0, 100 * (1 - x_gr / initial_length))
         
         # Create geometry object
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         
         # Temperature-precipitation forcing
         forcing = TemperaturePrecipitationForcing(
@@ -208,10 +208,13 @@ class TestChristianGlacier1:
         )
         
         # Geometry from steady state
-        geometry = FlowlineGeometry(
-            steady_result.x_gr, steady_result.zb_gr, steady_result.w_geom, 
-            profile=steady_result
-        )
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ss_path = Path(tmpdir) / "ss_profile.nc"
+            steady_result.to_xarray().to_netcdf(ss_path)
+            geometry = FlowlineGeometry.from_profile(
+                ss_path, steady_result.x_gr, steady_result.zb_gr, steady_result.w_geom
+            )
         
         # Run warming experiment
         model = flowline2d(config=warming_config, geometry=geometry, forcing=forcing)

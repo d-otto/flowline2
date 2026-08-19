@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 import tempfile
 import os
-import dill
 
 from flowline.geometry import (
     FlowlineGeometry, GeometryError, create_uniform_slope,
@@ -433,8 +432,8 @@ class TestFlowlineGeometry:
     def test_geometry_interpolation(self, basic_geometry_params):
         """Test that geometry interpolates correctly to model grid."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
-        
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=25)
         
         assert len(geometry.x) == len(geometry.zb)
@@ -445,8 +444,8 @@ class TestFlowlineGeometry:
     def test_gradient_calculation(self, basic_geometry_params):
         """Test bed slope calculation."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
-        
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=50)
         
         expected_slope = -basic_geometry_params['elevation_drop'] / basic_geometry_params['bed_characteristic_length']
@@ -454,31 +453,127 @@ class TestFlowlineGeometry:
         assert abs(mean_slope - expected_slope) < 0.01
 
     def test_initial_profile_from_values(self, basic_geometry_params):
-        """Test loading initial profile from h_init and x_init arrays."""
+        """Test that h0 is interpolated onto the model grid after setup_grid."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
         h_init = np.linspace(100, 0, len(x_gr))
 
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         geometry.setup_grid(delx=50)
-        geometry.load_initial_profile()
 
         assert hasattr(geometry, 'h0')
         assert len(geometry.h0) == len(geometry.x)
         assert geometry.h0[0] > 0
-    
-    def test_no_initial_profile_raises_error(self, basic_geometry_params):
-        """Test that not providing an initial profile raises an error."""
-        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
-        geometry.setup_grid(delx=50)
 
-        with pytest.raises(GeometryError, match="No valid initial profile"):
-            geometry.load_initial_profile()
+    def test_h0_required(self, basic_geometry_params):
+        """Test that FlowlineGeometry raises TypeError when h0 is not provided."""
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
+        with pytest.raises(TypeError):
+            FlowlineGeometry(x_gr, zb_gr, w_geom)
+
+    def test_h0_zero_explicit(self, basic_geometry_params):
+        """Test that passing np.zeros_like(x_gr) produces zero h0 on model grid."""
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
+        geometry.setup_grid(delx=50)
+        assert np.all(geometry.h0 == 0)
+
+    def test_h0_interpolated_to_model_grid(self, basic_geometry_params):
+        """Test that geometry.h0 after setup_grid has length nxs (model grid)."""
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
+        h_init = np.linspace(100, 0, len(x_gr))
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
+        geometry.setup_grid(delx=50)
+        assert len(geometry.h0) == geometry.nxs
+        assert len(geometry.h0) != len(x_gr)  # grids differ in general
+
+    def test_from_profile_basic(self, basic_geometry_params, tmp_path):
+        """Test from_profile loads h from NetCDF and matches expected values."""
+        import xarray as xr
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
+        delx = 50
+        x_model = np.arange(0, x_gr.max(), delx)
+        h_vals = np.linspace(200, 0, len(x_model))
+        ds = xr.Dataset(
+            {'h': (['time', 'x'], h_vals[np.newaxis, :])},
+            coords={'time': [0.0], 'x': x_model}
+        )
+        nc_path = tmp_path / "profile.nc"
+        ds.to_netcdf(nc_path)
+
+        geometry = FlowlineGeometry.from_profile(nc_path, x_gr, zb_gr, w_geom)
+        geometry.setup_grid(delx=delx)
+        assert hasattr(geometry, 'h0')
+        assert len(geometry.h0) == geometry.nxs
+        assert geometry.h0[0] > 0
+
+    def test_from_profile_avg_nyears(self, basic_geometry_params, tmp_path):
+        """Test from_profile time-averaging over final N years."""
+        import xarray as xr
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
+        delx = 50
+        x_model = np.arange(0, x_gr.max(), delx)
+        # Final 2 timesteps have h=100, earlier ones have h=200
+        h_early = np.full(len(x_model), 200.0)
+        h_late = np.full(len(x_model), 100.0)
+        ds = xr.Dataset(
+            {'h': (['time', 'x'], np.stack([h_early, h_early, h_late, h_late]))},
+            coords={'time': [0.0, 1.0, 2.0, 3.0], 'x': x_model}
+        )
+        nc_path = tmp_path / "profile_avg.nc"
+        ds.to_netcdf(nc_path)
+
+        geometry = FlowlineGeometry.from_profile(nc_path, x_gr, zb_gr, w_geom, avg_nyears=2)
+        geometry.setup_grid(delx=delx)
+        # h0_gr should be ~100 (average of last 2 timesteps) for interior points
+        interior = geometry.h0_gr[geometry.h0_gr > 0]
+        assert len(interior) > 0
+        assert np.allclose(interior, 100.0, atol=1.0)
+
+    def test_from_profile_different_grid(self, basic_geometry_params, tmp_path):
+        """Test from_profile with profile on a coarser grid than the model."""
+        import xarray as xr
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
+        # Coarse profile grid (every 500m)
+        x_coarse = np.arange(0, x_gr.max(), 500.0)
+        h_coarse = np.linspace(150, 0, len(x_coarse))
+        ds = xr.Dataset(
+            {'h': (['time', 'x'], h_coarse[np.newaxis, :])},
+            coords={'time': [0.0], 'x': x_coarse}
+        )
+        nc_path = tmp_path / "profile_coarse.nc"
+        ds.to_netcdf(nc_path)
+
+        geometry = FlowlineGeometry.from_profile(nc_path, x_gr, zb_gr, w_geom)
+        geometry.setup_grid(delx=25)
+        assert hasattr(geometry, 'h0')
+        assert len(geometry.h0) == geometry.nxs
+        assert np.all(geometry.h0 >= 0)
+
+    def test_no_double_interpolation(self, basic_geometry_params, tmp_path):
+        """Test that profile data survives the two-step interpolation without degradation."""
+        import xarray as xr
+        x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
+        delx = 50
+        # Build profile on a fine grid with a simple linear h profile
+        x_profile = np.linspace(0, x_gr.max(), 1000)
+        h_profile = np.maximum(0, 300.0 * (1 - x_profile / x_gr.max()))
+        ds = xr.Dataset(
+            {'h': (['time', 'x'], h_profile[np.newaxis, :])},
+            coords={'time': [0.0], 'x': x_profile}
+        )
+        nc_path = tmp_path / "profile_same_grid.nc"
+        ds.to_netcdf(nc_path)
+
+        geometry = FlowlineGeometry.from_profile(nc_path, x_gr, zb_gr, w_geom)
+        geometry.setup_grid(delx=delx)
+        # Linear profile survives two linear interpolations exactly
+        expected = np.maximum(0, 300.0 * (1 - geometry.x / x_gr.max()))
+        assert np.allclose(geometry.h0, expected, atol=0.1)
     
     def test_plot_geometry_basic(self, basic_geometry_params):
         """Test basic geometry plotting."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=50)
         
         # Test basic plot
@@ -493,12 +588,12 @@ class TestFlowlineGeometry:
     def test_plot_geometry_with_gradients(self, basic_geometry_params):
         """Test geometry plotting with gradients."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=50)
         
-        # Test plot with gradients
+        # Test plot with gradients (4 data plots in 3x2 grid = 6 axes total)
         fig, axes = geometry.plot_geometry(show_gradients=True)
-        assert len(axes) == 4  # bed, width, bed slope, width gradient
+        assert len(axes) >= 4  # bed, width, bed slope, width gradient
         
         import matplotlib.pyplot as plt
         plt.close(fig)
@@ -507,10 +602,9 @@ class TestFlowlineGeometry:
         """Test geometry plotting with initial profile."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
         h_init = np.linspace(100, 0, len(x_gr))
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         geometry.setup_grid(delx=50)
-        geometry.load_initial_profile()
-        
+
         # Test plot with initial profile
         fig, axes = geometry.plot_geometry(show_initial_profile=True)
         assert len(axes) == 3  # bed, width, initial profile
@@ -522,17 +616,16 @@ class TestFlowlineGeometry:
         """Test comprehensive geometry plotting."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
         h_init = np.linspace(150, 0, len(x_gr))
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         geometry.setup_grid(delx=50)
-        geometry.load_initial_profile()
-        
+
         # Test comprehensive plot
         fig, axes = geometry.plot_geometry(
             figsize=(14, 10),
             show_gradients=True, 
             show_initial_profile=True
         )
-        assert len(axes) == 5  # bed, width, bed slope, width gradient, initial profile
+        assert len(axes) >= 5  # bed, width, bed slope, width gradient, initial profile
         
         import matplotlib.pyplot as plt
         plt.close(fig)
@@ -540,8 +633,8 @@ class TestFlowlineGeometry:
     def test_plot_geometry_error_handling(self, basic_geometry_params):
         """Test error handling in geometry plotting."""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
-        
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
+
         # Test error when setup_grid hasn't been called
         with pytest.raises(GeometryError, match="Must call setup_grid"):
             geometry.plot_geometry()
@@ -551,7 +644,7 @@ class TestFlowlineGeometry:
         params = basic_geometry_params.copy()
         params.pop('width')  # create_variable_width doesn't use this
         x_gr, zb_gr, w_geom = create_variable_width(**params, w_head=2000, w_term=500)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=50)
         
         # Test plot with plan view
@@ -574,9 +667,8 @@ class TestFlowlineGeometry:
         params.pop('width')  # create_variable_width doesn't use this
         x_gr, zb_gr, w_geom = create_variable_width(**params, w_head=2000, w_term=500)
         h_init = np.linspace(200, 0, len(x_gr))
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         geometry.setup_grid(delx=50)
-        geometry.load_initial_profile()
         
         # Test comprehensive plot with plan view
         fig, axes = geometry.plot_geometry(

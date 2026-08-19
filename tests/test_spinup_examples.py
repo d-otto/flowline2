@@ -36,7 +36,7 @@ def example_objects():
         width=400, bed_characteristic_length=2000
     )
     h_init = np.maximum(0, 30.0 * (1 - x_gr / 2000))  # Initial ice profile
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
     
     # Base forcing for equilibrium around current climate
     forcing = TemperaturePrecipitationForcing(

@@ -95,7 +95,7 @@ def ss_result_uniform():
     
     h_init = np.maximum(0, GLACIER_PARAMS['initial_thickness_scale'] * 
                         (1 - x_gr / GLACIER_PARAMS['initial_glacier_length']))
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
 
     forcing = TemperaturePrecipitationForcing(
         T0=GLACIER_PARAMS['T0'], P0=GLACIER_PARAMS['P0'], gamma=GLACIER_PARAMS['gamma'], 
@@ -138,9 +138,9 @@ class TestGeometry:
         """Test that geometry interpolates correctly to model grid"""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
         
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=25)
-        
+
         # Check that interpolated values are reasonable
         assert len(geometry.x) == len(geometry.zb)
         assert len(geometry.x) == len(geometry.w)
@@ -151,9 +151,9 @@ class TestGeometry:
         """Test bed slope calculation"""
         x_gr, zb_gr, w_geom = create_uniform_slope(**basic_geometry_params)
         
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
         geometry.setup_grid(delx=50)
-        
+
         # For uniform slope, gradient should be approximately constant
         expected_slope = -basic_geometry_params['elevation_drop'] / basic_geometry_params['bed_characteristic_length']
         mean_slope = np.mean(geometry.dzbdx)
@@ -759,7 +759,7 @@ class TestNumericalSensitivity:
         # Run models with different resolutions
         results = {}
         for name, config in [('base', config_base), ('fine', config_fine), ('coarse', config_coarse)]:
-            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_init, h_init=h_init)
+            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
             
             # Ensure forcing uses the correct time range for this config
             run_forcing_params = forcing_params.copy()
@@ -972,7 +972,7 @@ class TestBoundaryConditions:
         # High accumulation at head
         forcing = DirectMassBalanceForcing(b0=0.5)  # +5 m/yr everywhere
         
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
         
@@ -998,7 +998,7 @@ class TestBoundaryConditions:
         # Strong ablation to test terminus retreat
         forcing = DirectMassBalanceForcing(b0=-1)  # -2 m/yr everywhere
         
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
         
@@ -1035,7 +1035,7 @@ class TestMassConservation:
         # Uniform mass balance
         forcing = DirectMassBalanceForcing(b0=0.5)  # +1 m/yr everywhere
         
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
         
@@ -1171,7 +1171,7 @@ class TestOutputFormats:
         h_init = np.maximum(0, 50 * (1 - x_gr / 10000))
         
         forcing = DirectMassBalanceForcing(b0=0.5)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         return model.run()
     
@@ -1255,7 +1255,7 @@ class TestFeatures:
         h_init = np.maximum(0, 100 * (1 - x_gr / 10000))
         
         forcing = DirectMassBalanceForcing(b0=0)
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
         
@@ -1286,7 +1286,7 @@ class TestFeatures:
             T2melt='pdd', pdd_Tamp=10, ts=0, tf=20
         )
         
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         result = model.run()
         
@@ -1378,11 +1378,11 @@ class TestFeatures:
 
             # Initialize geometry using the original grid but loading the initial
             # thickness profile from the exported file.
-            geometry = FlowlineGeometry(
+            geometry = FlowlineGeometry.from_profile(
+                profile_path,
                 x_gr=np.array(ss_result_uniform.attrs['x_gr']),
                 zb_gr=np.array(ss_result_uniform.attrs['zb_gr']),
                 w_geom=np.array(ss_result_uniform.attrs['w_geom']),
-                profile=profile_path
             )
 
             model = flowline2d(config=config, geometry=geometry, forcing=forcing)
@@ -1466,17 +1466,17 @@ class TestErrorHandling:
         """Test that invalid geometry raises appropriate errors"""
         # Empty arrays should raise an error
         with pytest.raises((ValueError, IndexError)):
-            geometry = FlowlineGeometry([], [], [])
+            geometry = FlowlineGeometry([], [], [], h0=np.array([]))
             geometry.setup_grid(25)
-    
+
     def test_mismatched_geometry_arrays(self):
         """Test that mismatched geometry arrays raise errors"""
         x_gr = np.linspace(0, 1000, 5)
         zb_gr = np.linspace(100, 0, 4)  # Wrong length
         w_geom = np.linspace(500, 500, 5)
-        
+
         with pytest.raises((ValueError, IndexError)):
-            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom)
+            geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=np.zeros_like(x_gr))
             geometry.setup_grid(25)
     
     def test_extreme_mass_balance_handling(self):
@@ -1495,7 +1495,7 @@ class TestErrorHandling:
         
         # Extremely negative mass balance
         forcing = DirectMassBalanceForcing(b0=-2)  # -2 m/yr
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         model = flowline2d(config=config, geometry=geometry, forcing=forcing)
         
         # Should either complete or raise a specific error
@@ -1563,7 +1563,7 @@ class TestFlowlineLinearModelComparison:
         )
         
         # Create geometry object
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         
         # Temperature-precipitation forcing for steady state
         forcing_ss = TemperaturePrecipitationForcing(
@@ -1633,12 +1633,13 @@ class TestFlowlineLinearModelComparison:
             tf=config.tf
         )
         
-        # Start from steady-state profile
-        geometry_warm = FlowlineGeometry(
-            x_gr, zb_gr, w_geom, 
-            profile=result_ss
-        )
-        
+        # Save steady-state profile and load it as initial condition for warmed run
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ss_path = Path(tmpdir) / "ss_profile.nc"
+            result_ss.to_xarray().to_netcdf(ss_path)
+            geometry_warm = FlowlineGeometry.from_profile(ss_path, x_gr, zb_gr, w_geom)
+
         # Run warmed model
         model_warm = flowline2d(config=config, geometry=geometry_warm, forcing=forcing_warm)
         result_warm = model_warm.run()

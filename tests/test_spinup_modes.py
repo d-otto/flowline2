@@ -44,7 +44,7 @@ def base_objects():
         width=500, bed_characteristic_length=1000
     )
     h_init = np.maximum(0, 10.0 * (1 - x_gr / 1000))  # Simple initial profile
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_gr, h_init)
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
     
     # Base forcing
     forcing = TemperaturePrecipitationForcing(

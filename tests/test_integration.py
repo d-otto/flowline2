@@ -40,10 +40,9 @@ def test_sweep_integration(tmp_path):
     
     base_geometry = FlowlineGeometry(
         x_gr=x_gr,
-        zb_gr=zb_gr, 
+        zb_gr=zb_gr,
         w_geom=w_geom,
-        x_init=x_gr,
-        h_init=h_init
+        h0=h_init
     )
     
     # Create forcing
