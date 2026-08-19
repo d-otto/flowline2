@@ -124,7 +124,7 @@ def main():
 
         # Create geometry object for this width profile
         geometry = FlowlineGeometry(
-            x_gr=x_gr, zb_gr=zb_gr, w_geom=w_geom, x_init=x_gr, h_init=h_init
+            x_gr=x_gr, zb_gr=zb_gr, w_geom=w_geom, h0=h_init
         )
 
         # Spinup configuration
@@ -174,7 +174,7 @@ def main():
     experimental_perturbations = {}
     for profile_type in width_profiles.keys():
         experimental_perturbations[profile_type] = {
-            "forcing.T0": lambda T0_spinup: T0_spinup + 2,  # +1.5°C warming
+            "forcing.T0": lambda T0_spinup: T0_spinup + 0.5,  # +1.5°C warming
             "config.tf": lambda _: 500,  # 500-year response test
         }
 
@@ -194,8 +194,7 @@ def main():
         x_gr=x_gr_hg,
         zb_gr=zb_gr_hg,
         w_geom=w_geom_hg,
-        x_init=x_gr_hg,
-        h_init=h_init,
+        h0=h_init,
     )
 
     sweep = FlowlineSweep(

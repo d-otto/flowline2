@@ -62,7 +62,7 @@ def main():
         # Create bedrock geometry
         x_gr, zb_gr, w_geom = scenario['function'](**scenario['params'])
         h_init = np.maximum(0, 100 * (1 - x_gr / 5000))
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
         geometries[name] = geometry
 
         # Run model

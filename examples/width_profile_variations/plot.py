@@ -47,14 +47,15 @@ def plot(output_dir):
             if "ela" in sp:
                 spinup_ela[profile_type] = float(sp["ela"].isel(time=-1))
 
-    fig = plt.figure(figsize=(32, 18), layout="constrained")
+    fig = plt.figure(figsize=(32, 21), layout="constrained")
 
     subplot_mosaic = [
         ["width_profiles", "width_profiles", "length_response", "length_response", "f_eq",            "f_eq",             "smb",         "smb"        ],
         ["volume_response", "volume_response", "comparison",    "comparison",      "flux",             "flux",             "terminus_mb", "terminus_mb"],
         ["thickness_final", "thickness_final", "flux_pct_change","flux_pct_change","flux_pct_volume",  "flux_pct_volume",  "sensitivity", "sensitivity"],
         ["plan_top_heavy",  "plan_top_heavy",  "plan_neutral",  "plan_neutral",    "plan_bottom_heavy","plan_bottom_heavy","ela",         "ela"        ],
-        ["cumsum_area",     "cumsum_area",     ".",             ".",               "ela_t0",           "ela_t0",           "aar",         "aar"        ],
+        ["cumsum_area",     "cumsum_area",     "vol_pct",       "vol_pct",         "ela_t0",           "ela_t0",           "aar",         "aar"        ],
+        ["beta_ablation",   "beta_ablation",   "beta_global",   "beta_global",     "beta_length",      "beta_length",      "f_eq_vol",    "f_eq_vol"   ],
     ]
     axes = fig.subplot_mosaic(subplot_mosaic)
     fig.suptitle("Width Profile Effects on Glacier Dynamics", fontsize=16)
@@ -340,14 +341,20 @@ def plot(output_dir):
                 if "zb" in ds.data_vars:
                     zb = ds["zb"].sel(run_id=profile_type).values
                     max_w = w_geom.max()
+                    h_initial = h_data.isel(time=0).values
+                    h_final_vals = h_data.isel(time=-1).values
                     ela_elevs = [
-                        (spinup_ela.get(profile_type), "--", "ELA (initial)"),
-                        (float(ds["ela"].sel(run_id=profile_type).isel(time=-1)) if "ela" in ds else None, "-", "ELA (final)"),
+                        (spinup_ela.get(profile_type), "--", h_initial, "ELA (spinup end)"),
+                        (float(ds["ela"].sel(run_id=profile_type).isel(time=-1)) if "ela" in ds else None, "-", h_final_vals, "ELA (final)"),
                     ]
-                    for ela_elev, linestyle, ela_label in ela_elevs:
+                    for ela_elev, linestyle, h_for_surface, ela_label in ela_elevs:
                         if ela_elev is None:
                             continue
-                        ela_x = x_vals[np.searchsorted(-zb, -ela_elev)]
+                        surface = zb + h_for_surface
+                        mask = surface >= ela_elev
+                        if not mask.any():
+                            continue
+                        ela_x = x_vals[np.where(mask)[0][-1]]
                         ax.plot([-max_w, max_w], [ela_x, ela_x], color="black", linestyle=linestyle, linewidth=1.5, label=ela_label)
 
             ax.set_xlabel("Width (m)")
@@ -497,6 +504,111 @@ def plot(output_dir):
     axes["cumsum_area"].set_title("Cumulative Glacier Area Along Flowline (spinup final state)")
     axes["cumsum_area"].legend()
     axes["cumsum_area"].grid(True, alpha=0.3)
+
+    # 18. Beta = total area / (width * thickness), four calculation approaches
+    # Beta is a shape factor proxy: how well does a simple width*thickness product
+    # represent the actual cross-sectional geometry.
+    if "h" in ds.data_vars and "w" in ds.data_vars and "ela" in ds.data_vars and "b_profile" in ds.data_vars:
+        for profile_type in ordered_profiles:
+            if profile_type not in ds.coords["run_id"].values:
+                continue
+            h = ds["h"].sel(run_id=profile_type)           # (time, x)
+            w_ice = ds["w"].sel(run_id=profile_type)       # (x,)  — ice width
+            b = ds["b_profile"].sel(run_id=profile_type)   # (time, x)
+
+            # Total glacier area at each timestep (m²)
+            total_area = w_ice.where(h > 0, 0).sum(dim="x") * delx  # (time,)
+
+            # --- Variant 1: ablation-zone mean width and thickness ---
+            ablation_mask = b < 0
+            ice_mask = h > 0
+            combined_mask = ablation_mask & ice_mask
+            w_abl = w_ice.where(combined_mask).mean(dim="x")     # (time,)
+            h_abl = h.where(combined_mask).mean(dim="x")         # (time,)
+            beta_ablation = total_area / (w_abl * h_abl)
+
+            # --- Variant 2: whole-glacier mean width and thickness ---
+            w_mean = w_ice.where(ice_mask).mean(dim="x")         # (time,)
+            h_mean = h.where(ice_mask).mean(dim="x")             # (time,)
+            beta_global = total_area / (w_mean * h_mean)
+
+            # --- Variant 3: length / mean thickness below ELA ---
+            length = ds["edge"].sel(run_id=profile_type)         # (time,)
+            h_below_ela = h.where(combined_mask).mean(dim="x")   # same as h_abl
+            beta_length = length / h_below_ela
+
+            label = profile_type.replace("_", " ").title()
+            color = colors[profile_type]
+            t = h.coords["time"]
+            for ax_key, beta_da in [
+                ("beta_ablation", beta_ablation),
+                ("beta_global",   beta_global),
+                ("beta_length",   beta_length),
+            ]:
+                axes[ax_key].plot(t, beta_da, color=color, linewidth=2, label=label)
+
+        axes["beta_ablation"].set_title("Beta: area / (w_abl * h_abl)")
+        axes["beta_ablation"].set_xlabel("Time (years)")
+        axes["beta_ablation"].set_ylabel("Beta (ablation zone mean)")
+        axes["beta_ablation"].legend()
+        axes["beta_ablation"].grid(True, alpha=0.3)
+
+        axes["beta_global"].set_title("Beta: area / (w_mean * h_mean)")
+        axes["beta_global"].set_xlabel("Time (years)")
+        axes["beta_global"].set_ylabel("Beta (whole-glacier mean)")
+        axes["beta_global"].legend()
+        axes["beta_global"].grid(True, alpha=0.3)
+
+        axes["beta_length"].set_title("Beta: length / h_below_ela")
+        axes["beta_length"].set_xlabel("Time (years)")
+        axes["beta_length"].set_ylabel("Beta (length / mean h below ELA)")
+        axes["beta_length"].legend()
+        axes["beta_length"].grid(True, alpha=0.3)
+
+    # 19. % of original volume
+    if "h" in ds.data_vars and "w" in ds.data_vars:
+        for profile_type in ordered_profiles:
+            if profile_type in ds.coords["run_id"].values:
+                volume = (ds["h"].sel(run_id=profile_type) * ds["w"].sel(run_id=profile_type) * delx).sum(dim="x")
+                vol_pct = volume / float(volume.isel(time=0)) * 100
+                axes["vol_pct"].plot(
+                    vol_pct.coords["time"],
+                    vol_pct,
+                    color=colors[profile_type],
+                    linewidth=2,
+                    label=profile_type.replace("_", " ").title(),
+                )
+
+        axes["vol_pct"].axhline(y=100, color="gray", linestyle="--", linewidth=1.0, alpha=0.5)
+        axes["vol_pct"].set_xlabel("Time (years)")
+        axes["vol_pct"].set_ylabel("Volume (% of initial)")
+        axes["vol_pct"].set_title("Volume as % of Initial Volume")
+        axes["vol_pct"].legend()
+        axes["vol_pct"].grid(True, alpha=0.3)
+
+    # 20. Fractional equilibration of volume
+    if "h" in ds.data_vars and "w" in ds.data_vars:
+        for profile_type in ordered_profiles:
+            if profile_type in ds.coords["run_id"].values:
+                volume = (ds["h"].sel(run_id=profile_type) * ds["w"].sel(run_id=profile_type) * delx).sum(dim="x")
+                V_0 = float(volume.isel(time=0))
+                V_end = float(volume.isel(time=-1))
+                f_eq_vol = (volume - V_0) / (V_end - V_0)
+                axes["f_eq_vol"].plot(
+                    f_eq_vol.coords["time"],
+                    f_eq_vol,
+                    color=colors[profile_type],
+                    linewidth=2,
+                    label=profile_type.replace("_", " ").title(),
+                )
+
+        axes["f_eq_vol"].axhline(y=1.0, color="black", linestyle="--", linewidth=1.5, alpha=0.7)
+        axes["f_eq_vol"].axhline(y=0.0, color="gray", linestyle="--", linewidth=1.0, alpha=0.5)
+        axes["f_eq_vol"].set_xlabel("Time (years)")
+        axes["f_eq_vol"].set_ylabel("f_eq = (V - V₀) / (V_end - V₀)")
+        axes["f_eq_vol"].set_title("Fractional Equilibration of Volume")
+        axes["f_eq_vol"].legend()
+        axes["f_eq_vol"].grid(True, alpha=0.3)
 
     plot_path = output_dir / "width_profile_analysis.png"
     fig.savefig(plot_path, dpi=150, bbox_inches="tight")

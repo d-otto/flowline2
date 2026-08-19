@@ -44,14 +44,16 @@ def main():
     }
     x_gr, zb_gr, w_geom = create_uniform_slope(**geom_params)
     h_init = np.maximum(0, 100 * (1 - x_gr / 5000))
-    spinup_geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+    spinup_geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
     spinup_forcing = TemperaturePrecipitationForcing(
         T0=8.0, P0=2.0, gamma=6.5e-3, mu=0.65, ts=spinup_config.ts, tf=spinup_config.tf
     )
 
-    # Use the spin-up result as the initial condition for all experiments.
-    # The profile object itself can be passed to FlowlineGeometry.
+    # Run spinup and save result to NetCDF for use as initial condition.
     steady_state_profile = run_spinup(spinup_config, spinup_geometry, spinup_forcing)
+    spinup_path = output_dir / "spinup.nc"
+    steady_state_profile.to_xarray().to_netcdf(spinup_path)
+    print(f"Spinup profile saved to: {spinup_path}")
     
     # --- 3. Define Forcing Scenarios for a 200-year experiment ---
     exp_config = FlowlineConfig(
@@ -101,8 +103,8 @@ def main():
     print("\nRunning simulations for different forcing scenarios...")
     for name, scenario in scenarios.items():
         print(f"  - Running: {name}")
-        # Initialize geometry from the steady-state profile.
-        geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, profile=steady_state_profile)
+        # Initialize geometry from the steady-state spinup profile.
+        geometry = FlowlineGeometry.from_profile(spinup_path, x_gr, zb_gr, w_geom)
         
         # Initialize forcing
         forcing_params = scenario['params']

@@ -57,7 +57,7 @@ def main():
     # Create initial ice thickness profile
     h_init = np.maximum(0, 100 * (1 - x_gr / 5000))
     
-    base_geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+    base_geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
     
     # Create base forcing
     base_forcing = TemperaturePrecipitationForcing(

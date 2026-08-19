@@ -155,7 +155,7 @@ def main():
         x_gr, zb_gr, w_geom = profile_info["geometry_data"]
 
         geometry = FlowlineGeometry(
-            x_gr=x_gr, zb_gr=zb_gr, w_geom=w_geom, x_init=x_gr, h_init=h_init
+            x_gr=x_gr, zb_gr=zb_gr, w_geom=w_geom, h0=h_init
         )
 
         spinup_config = FlowlineConfig(
@@ -225,8 +225,7 @@ def main():
         x_gr=x_gr_ufl,
         zb_gr=zb_gr_ufl,
         w_geom=w_geom_ufl,
-        x_init=x_gr_ufl,
-        h_init=h_init,
+        h0=h_init,
     )
 
     sweep = FlowlineSweep(

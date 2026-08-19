@@ -42,7 +42,7 @@ def main():
     }
     x_gr, zb_gr, w_geom = geometry_module.create_uniform_slope(**geom_params)
     h_init = np.maximum(0, 100 * (1 - x_gr / 5000))  # Simple wedge shape
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
 
     # Target length
     target_length = 8000  # Same as target_matching_simple

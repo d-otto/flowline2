@@ -55,7 +55,7 @@ def main():
     h_init = np.maximum(0, 100 * (1 - x_gr / 5000))
 
     # Instantiate the geometry object.
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
 
     # --- 4. Set Up Mass Balance Forcing ---
     # We'll use temperature-precipitation forcing.

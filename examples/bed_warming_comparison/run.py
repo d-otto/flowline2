@@ -123,18 +123,15 @@ def main():
         width=1000
     )
     h_init = np.maximum(0, 150 * (1 - x_gr_flat / 4000))  # Initial ice thickness
-    flat_geometry = FlowlineGeometry(x_gr_flat, zb_gr_flat, w_geom_flat, 
-                                   x_init=x_gr_flat, h_init=h_init)
-    
+    flat_geometry = FlowlineGeometry(x_gr_flat, zb_gr_flat, w_geom_flat, h0=h_init)
+
     # Convex bed (matching flat bed endpoints)
     zb_gr_convex = create_matched_convex_bed(x_gr_flat, zb_gr_flat, convexity_amplitude=500)
-    convex_geometry = FlowlineGeometry(x_gr_flat, zb_gr_convex, w_geom_flat,
-                                     x_init=x_gr_flat, h_init=h_init)
-    
+    convex_geometry = FlowlineGeometry(x_gr_flat, zb_gr_convex, w_geom_flat, h0=h_init)
+
     # Concave bed (matching flat bed endpoints)
     zb_gr_concave = create_matched_convex_bed(x_gr_flat, zb_gr_flat, convexity_amplitude=-500)
-    concave_geometry = FlowlineGeometry(x_gr_flat, zb_gr_concave, w_geom_flat,
-                                      x_init=x_gr_flat, h_init=h_init)
+    concave_geometry = FlowlineGeometry(x_gr_flat, zb_gr_concave, w_geom_flat, h0=h_init)
     
     # --- 4. Define Forcing Objects ---
     # Baseline temperature and experimental temperature

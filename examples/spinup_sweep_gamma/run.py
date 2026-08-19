@@ -41,7 +41,7 @@ def main():
     h_init = np.maximum(0, scale * (1 - x_gr / length))
 
     base_geometry = FlowlineGeometry(
-        x_gr=x_gr, zb_gr=zb_gr, w_geom=w_geom, x_init=x_gr, h_init=h_init
+        x_gr=x_gr, zb_gr=zb_gr, w_geom=w_geom, h0=h_init
     )
 
     # --- Base Config and Forcing ---

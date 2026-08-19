@@ -40,7 +40,7 @@ def main():
     }
     x_gr, zb_gr, w_geom = geometry_module.create_uniform_slope(**geom_params)
     h_init = np.maximum(0, 100 * (1 - x_gr / 5000))  # Create initial ice thickness profile (simple wedge shape)
-    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init)
+    geometry = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init)
     
     # Create forcing with initial guess (using stable parameters)
     forcing = TemperaturePrecipitationForcing(
@@ -52,18 +52,19 @@ def main():
         tf=config.tf,
     )
     
-    # Configure target matching
+    # Configure target matching (new multi-parameter format - also works for single parameter)
     target_matching = {
         'targets': {
             'target_length': 8250,  # Want exactly 8km glacier
         },
-        'adjustment_parameter': 'T0',        # Optimize temperature
+        'adjustment_parameters': ['T0'],        # Optimize temperature (list format)
+        'parameter_bounds': [(7.0, 9.0)],    # Extended temperature range (list of tuples)
         'cost_function': LengthOnlyCost,      # Simple length-only optimization
         'steady_state_detector': VolumeChangeRateDetector,  # Required detector
         'tolerance': 0.1,                     # Accept +/- delx error TODO: what units?
-        'parameter_bounds': (7.0, 9.0),    # Extended temperature range
-        'max_iterations': 100,                 # Limit optimization steps
-        'max_simulation_time': config.tf           # Match the config.tf
+        'max_iterations': 5,                 # Very few iterations for testing
+        'max_simulation_time': config.tf,           # Match the config.tf
+        'optimization_options': {'n': 3, 'maxfev': 5, 'seed': 42}   # Minimal SHGO settings
     }
     
     # Create spinup with target matching

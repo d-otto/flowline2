@@ -56,7 +56,7 @@ def main():
     )
     # Start spin-up from a simple wedge
     h_init_wedge = np.maximum(0, 100 * (1 - x_gr / 5000))
-    spinup_geom_initial = FlowlineGeometry(x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_init_wedge)
+    spinup_geom_initial = FlowlineGeometry(x_gr, zb_gr, w_geom, h0=h_init_wedge)
     
     # Run spin-up to get a more realistic profile
     spinup_result = run_spinup(spinup_config, spinup_geom_initial, spinup_forcing)
@@ -72,17 +72,17 @@ def main():
     # Scenario 1: Initialized from a simple wedge function
     h_wedge = np.maximum(0, 200 * (1 - x_gr / 8000)) # A different wedge
     scenarios['From Function (Wedge)'] = FlowlineGeometry(
-        x_gr, zb_gr, w_geom, x_init=x_gr, h_init=h_wedge
+        x_gr, zb_gr, w_geom, h0=h_wedge
     )
-    
-    # Scenario 2: Initialized directly from the spin-up result object
-    scenarios['From Spin-up Object'] = FlowlineGeometry(
-        x_gr, zb_gr, w_geom, profile=spinup_result
+
+    # Scenario 2: Initialized from the saved spin-up profile (same file as Scenario 3)
+    scenarios['From Spin-up Profile'] = FlowlineGeometry.from_profile(
+        profile_path, x_gr, zb_gr, w_geom
     )
-    
+
     # Scenario 3: Initialized from the saved spin-up profile file
-    scenarios['From Profile File'] = FlowlineGeometry(
-        x_gr, zb_gr, w_geom, profile=profile_path
+    scenarios['From Profile File'] = FlowlineGeometry.from_profile(
+        profile_path, x_gr, zb_gr, w_geom
     )
     
     # --- 4. Run Simulations for Each Initialization ---

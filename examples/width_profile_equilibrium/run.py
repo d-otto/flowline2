@@ -56,8 +56,7 @@ def run_target_matching_phase(profile_type, x_gr, zb_gr, w_geom, h_init, T0_init
             x_gr=x_gr,
             zb_gr=zb_gr,
             w_geom=w_geom,
-            x_init=x_gr,
-            h_init=h_init,
+            h0=h_init,
         ),
         forcing=TemperaturePrecipitationForcing(
             ts=0,

@@ -59,8 +59,7 @@ def main():
         x_gr=x_gr,
         zb_gr=zb_gr,
         w_geom=w_geom,
-        x_init=x_gr,
-        h_init=h_init
+        h0=h_init
     )
     
     # --- Base Forcing ---
